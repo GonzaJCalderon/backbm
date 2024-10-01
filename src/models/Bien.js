@@ -41,8 +41,8 @@ const Bien = sequelize.define('Bien', {
     allowNull: false,
   },
   foto: {
-    type: DataTypes.STRING,
-  },
+    type: DataTypes.TEXT, 
+},
   tipo: {
     type: DataTypes.STRING,
     allowNull: false,

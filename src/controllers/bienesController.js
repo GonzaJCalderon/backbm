@@ -95,16 +95,23 @@ const obtenerBienesStock = async (req, res) => {
 // src/controllers/bienesController.js
 const crearBien = async (req, res) => {
   try {
+    console.log('Datos del cuerpo:', req.body);
+    console.log('Archivos recibidos:', req.files);
+
     const { descripcion, precio, tipo, marca, modelo, stock, vendedorId, fecha } = req.body;
 
-    // Verifica si las fotos fueron cargadas
     const fotos = req.files['fotos'];
+    if (!fotos || fotos.length === 0) {
+      return res.status(400).json({ mensaje: 'No se han cargado fotos' });
+    }
 
     if (!descripcion || !precio || !tipo || !marca || !modelo || !stock || !vendedorId || !fecha) {
       return res.status(400).json({ mensaje: 'Faltan datos necesarios para crear el bien' });
     }
 
-    // Crea el bien en la base de datos
+    // Guarda los nombres de archivo de las fotos como una cadena separada por comas
+    const fotosNombres = fotos.map(f => f.filename).join(',');
+
     const nuevoBien = await Bien.create({
       descripcion,
       precio,
@@ -114,10 +121,9 @@ const crearBien = async (req, res) => {
       stock,
       vendedorId,
       fecha,
-      fotos: fotos ? fotos.map(f => f.filename) : []  // Guarda los nombres de archivo de las fotos
+      foto: fotosNombres // Guarda los nombres de archivo de las fotos
     });
 
-    // Responde con el nuevo bien creado
     res.status(201).json({
       mensaje: "Bien creado con éxito",
       id: nuevoBien.uuid,
@@ -125,9 +131,11 @@ const crearBien = async (req, res) => {
     });
   } catch (error) {
     console.error('Error al crear el bien:', error);
-    res.status(500).json({ mensaje: "Error al crear el bien", error: error.message });
+    res.status(500).json({ mensaje: "Error al crear el bien", error: error.message || error });
   }
 };
+
+
 
 
 // Obtener bien por ID

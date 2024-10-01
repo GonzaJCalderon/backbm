@@ -1,12 +1,13 @@
+// Importar dependencias
 const express = require('express');
-const bodyParser = require('body-parser');
 const cors = require('cors');
 const cookieParser = require('cookie-parser');
 const sequelize = require('./src/config/db');
-const path = require('path');  // Importar el módulo 'path'
+const path = require('path');
+const upload = require('./src/config/multerConfig'); // Asegúrate de que esta ruta sea correcta
 
 // Importar modelos
-const { Usuario, Bien, Transaccion } = require('./src/models'); 
+const { Usuario, Bien, Transaccion } = require('./src/models');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -24,8 +25,10 @@ const corsOptions = {
 
 app.use(cors(corsOptions));
 
-// Configuración de bodyParser
-app.use(bodyParser.json());
+// Middleware para analizar el cuerpo de las solicitudes JSON
+app.use(express.json());
+// Middleware para analizar el cuerpo de las solicitudes URL-encoded
+app.use(express.urlencoded({ extended: true }));
 
 // Configuración de cookie-parser
 app.use(cookieParser());
@@ -43,7 +46,7 @@ app.use((req, res, next) => {
 // Servir la carpeta 'uploads' públicamente
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
-// Importar rutas
+// Rutas
 const bienesRoutes = require('./src/routes/bienes');
 const usuariosRoutes = require('./src/routes/usuarios');
 const authRoutes = require('./src/routes/auth');
@@ -58,10 +61,9 @@ app.use('/sales', salesRoutes);
 app.use('/stock', stockRoutes);
 
 // Sincronizar la base de datos
-sequelize.sync({ alter: true }) // Usa alter para ajustar la base de datos a los modelos actuales
+sequelize.sync({ alter: true })
   .then(() => {
     console.log('Base de datos sincronizada');
-    // Puedes poner aquí cualquier lógica adicional después de sincronizar, si es necesario
   })
   .catch(error => {
     console.error('Error al sincronizar la base de datos:', error);

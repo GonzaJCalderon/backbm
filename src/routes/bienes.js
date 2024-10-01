@@ -14,7 +14,16 @@ const upload = require('../config/multerConfig');
 router.get('/', bienesController.obtenerBienes);
 
 // Ruta para crear un nuevo bien
-router.post('/', verifyToken, bienesController.crearBien);
+// Ruta para crear un nuevo bien
+router.post('/', verifyToken, upload.fields([
+  { name: 'fotos', maxCount: 3 }
+]), (err, req, res, next) => {
+  if (err) {
+      return res.status(400).send({ error: err.message });
+  }
+  next();
+}, bienesController.crearBien);
+
 
 // Ruta para obtener un bien por su ID
 router.get('/:id', bienesController.obtenerBienPorId);
