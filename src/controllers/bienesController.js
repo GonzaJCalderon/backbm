@@ -92,17 +92,19 @@ const obtenerBienesStock = async (req, res) => {
 };
 
 // Crear un nuevo bien
-// Crear un nuevo bien
+// src/controllers/bienesController.js
 const crearBien = async (req, res) => {
   try {
-    const { descripcion, precio, tipo, marca, modelo, stock, vendedorId, compradorId, fecha, fotos } = req.body;
+    const { descripcion, precio, tipo, marca, modelo, stock, vendedorId, fecha } = req.body;
 
-    // Verifica si se proporcionaron todos los campos necesarios
+    // Verifica si las fotos fueron cargadas
+    const fotos = req.files['fotos'];
+
     if (!descripcion || !precio || !tipo || !marca || !modelo || !stock || !vendedorId || !fecha) {
       return res.status(400).json({ mensaje: 'Faltan datos necesarios para crear el bien' });
     }
 
-    // Crea el nuevo bien
+    // Crea el bien en la base de datos
     const nuevoBien = await Bien.create({
       descripcion,
       precio,
@@ -111,18 +113,16 @@ const crearBien = async (req, res) => {
       modelo,
       stock,
       vendedorId,
-      compradorId,  // Si es necesario, podrías omitir esto al crear el bien
       fecha,
-      fotos
+      fotos: fotos ? fotos.map(f => f.filename) : []  // Guarda los nombres de archivo de las fotos
     });
 
-    // Devuelve una respuesta exitosa con el nuevo bien
+    // Responde con el nuevo bien creado
     res.status(201).json({
       mensaje: "Bien creado con éxito",
-      id: nuevoBien.uuid,  // Asegúrate de devolver el UUID
-      nuevoBien // Esto contiene todos los detalles del nuevo bien
+      id: nuevoBien.uuid,
+      nuevoBien
     });
-
   } catch (error) {
     console.error('Error al crear el bien:', error);
     res.status(500).json({ mensaje: "Error al crear el bien", error: error.message });
@@ -131,10 +131,12 @@ const crearBien = async (req, res) => {
 
 
 // Obtener bien por ID
+// Obtener bien por ID
 const obtenerBienPorId = async (req, res) => {
   try {
     const { id } = req.params; // id es ahora un UUID
-    const bien = await Bien.findOne({ where: { id } });
+    // Cambia 'id' a 'uuid' para hacer la consulta correcta
+    const bien = await Bien.findOne({ where: { uuid: id } });
 
     if (!bien) {
       return res.status(404).json({ message: 'Bien no encontrado' });
@@ -142,9 +144,11 @@ const obtenerBienPorId = async (req, res) => {
 
     return res.json(bien);
   } catch (error) {
+    console.error('Error al obtener el bien:', error); // Para depuración
     return res.status(500).json({ error: 'Error al obtener el bien' });
   }
 };
+
 
 const registrarBien = async (req, res) => {
   try {
@@ -215,48 +219,94 @@ const eliminarBien = async (req, res) => {
 };
 
 // Registrar una transacción
-// Registrar una transacción
-const registrarTransaccion = async (req, res) => {
+const registrarTransaccion = async (req, res, tipoTransaccion) => {
+  const {
+    bienId,
+    compradorId,
+    vendedorId,
+    precio,
+    cantidad,
+    metodoPago,
+    descripcion,
+    tipo,
+    marca,
+    modelo,
+    imei,
+  } = req.body;
+
+  console.log(`Datos recibidos para la ${tipoTransaccion}:`, req.body);
+
+  // Validaciones comunes
+  if (!bienId || !compradorId || !vendedorId || !precio || !cantidad || !metodoPago || !tipo || !marca || !modelo) {
+    return res.status(400).json({ mensaje: `Faltan datos necesarios para registrar la ${tipoTransaccion}.` });
+  }
+
+  if (tipo === 'Teléfono móvil' && !imei) {
+    return res.status(400).json({ mensaje: "Faltan datos necesarios: imei es requerido para teléfonos móviles." });
+  }
+
+  const transaction = await sequelize.transaction();
+  
   try {
-    const { bienId, compradorId, cantidadVendida, monto, estado, metodoPago } = req.body;
+    let bien = await Bien.findOne({ where: { uuid: bienId }, transaction });
 
-    if (!bienId || !compradorId || !cantidadVendida || cantidadVendida <= 0 || !monto) {
-      return res.status(400).json({ message: 'bienId, compradorId, cantidadVendida, y monto son obligatorios, y la cantidadVendida debe ser positiva' });
-    }
-
-    const bien = await Bien.findByPk(bienId);
     if (!bien) {
-      return res.status(404).json({ message: 'Bien no encontrado' });
+      // Si es una compra y el bien no existe, se crea
+      if (tipoTransaccion === 'Compra') {
+        bien = await Bien.create({
+          uuid: bienId,
+          vendedorId,
+          compradorId,
+          descripcion,
+          precio,
+          tipo,
+          marca,
+          modelo,
+          imei,
+          stock: cantidad,
+        }, { transaction });
+      } else {
+        return res.status(404).json({ mensaje: "El bien no existe." });
+      }
+    } else {
+      // Si ya existe, actualizar el stock o disminuirlo
+      if (tipoTransaccion === 'Venta') {
+        if (bien.stock < cantidad) {
+          return res.status(400).json({ mensaje: "Stock insuficiente para realizar la venta." });
+        }
+        bien.stock -= cantidad; // Decrementar stock
+      } else {
+        bien.stock += cantidad; // Incrementar stock en la compra
+      }
+      await bien.save({ transaction });
     }
 
-    if (bien.stock < cantidadVendida) {
-      return res.status(400).json({ message: 'No hay suficiente stock disponible' });
-    }
-
-    bien.stock -= cantidadVendida;
-    bien.compradorId = compradorId;
-    bien.fecha = new Date();
-
-    await bien.save();
-
+    // Registrar la transacción
     const transaccion = await Transaccion.create({
-      bienId,
+      bienId: bien.uuid,
       compradorId,
-      vendedorId: bien.vendedorId,
-      cantidad: cantidadVendida,
-      monto,
-      estado: estado || 'pendiente',
-      metodoPago: metodoPago || null,
-      fecha: new Date()
-    });
+      vendedorId,
+      cantidad,
+      monto: precio * cantidad,
+      metodoPago,
+      fecha: new Date(),
+      estado: 'pendiente',
+      tipoTransaccion,
+    }, { transaction });
 
-    res.status(200).json({ message: 'Transacción registrada exitosamente', transaccion });
+    await transaction.commit();
+
+    res.status(201).json({
+      mensaje: `${tipoTransaccion} registrada exitosamente`,
+      transaccion,
+      bien,
+    });
   } catch (error) {
-    console.error('Error al registrar la transacción:', error);
-    res.status(500).json({ message: 'Error al registrar la transacción', error: error.message });
+    await transaction.rollback();
+    console.error(`Error al registrar la ${tipoTransaccion}:`, error);
+    res.status(500).json({ mensaje: "Error al registrar la transacción", error: error.message });
   }
 };
-
 
 
 
@@ -480,107 +530,121 @@ const obtenerTrazabilidadPorBien = async (req, res) => {
 
 
 
-// Registrar una venta
 const registrarVenta = async (req, res) => {
-  const { bienId, compradorId, cantidadComprada, monto } = req.body;
+  const {
+    bienId,
+    compradorId,
+    vendedorId,
+    precio,
+    cantidad,
+    metodoPago,
+  } = req.body;
+
+  // Validar que el bienId sea un UUID válido
+  const isValidUUID = (uuid) => {
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    return uuidRegex.test(uuid);
+  };
+
+  if (!isValidUUID(bienId)) {
+    return res.status(400).json({ mensaje: "El bienId proporcionado no es un UUID válido." });
+  }
+
+  console.log("Buscando bien con ID:", bienId);
 
   const transaction = await sequelize.transaction();
 
   try {
-    // Buscar el bien
-    const bien = await Bien.findOne({ where: { id: bienId }, transaction });
+    let bien = await Bien.findOne({
+      where: { uuid: bienId },
+      transaction,
+    });
+
     if (!bien) {
-      throw new Error('El bien no existe.');
+      return res.status(404).json({ mensaje: "El bien no existe." });
     }
 
     // Verificar stock
-    if (bien.stock < cantidadComprada) {
-      throw new Error('Stock insuficiente para realizar la venta.');
+    if (bien.stock < cantidad) {
+      return res.status(400).json({ mensaje: "Stock insuficiente para realizar la venta." });
     }
 
-    // Actualizar stock del bien (vendedor)
-    bien.stock -= cantidadComprada;
-    if (bien.stock === 0) {
-      await bien.destroy({ transaction });
-    } else {
-      await bien.save({ transaction });
-    }
+    // Actualizar stock del bien
+    bien.stock -= cantidad;
+    await bien.save({ transaction });
+    console.log("Stock actualizado del bien:", bien);
 
-    // Crear o actualizar bien del comprador
-    let bienComprador = await Bien.findOne({
-      where: {
-        imei: bien.imei,
-        compradorId: compradorId
-      },
-      transaction
-    });
+    // Registrar la transacción
+    const transaccion = await Transaccion.create({
+      bienId: bien.uuid,
+      compradorId,
+      vendedorId,
+      cantidad,
+      monto: precio * cantidad,
+      metodoPago,
+      fecha: new Date(),
+      estado: 'pendiente',
+      tipoTransaccion: 'Venta',
+    }, { transaction });
 
-    if (bienComprador) {
-      // Si el bien ya existe en el stock del comprador, actualizar el stock
-      bienComprador.stock += cantidadComprada;
-      await bienComprador.save({ transaction });
-    } else {
-      // Si el bien no existe en el stock del comprador, crear un nuevo registro
-      await Bien.create({
-        vendedorId: bien.vendedorId, // El vendedor original del bien
-        compradorId: compradorId, // El comprador actual del bien
+    // Commit de la transacción
+    await transaction.commit();
+
+    res.status(201).json({
+      mensaje: "Venta registrada exitosamente",
+      transaccion,
+      bien: {
+        uuid: bien.uuid,
+        vendedorId: bien.vendedorId,
+        compradorId: bien.compradorId,
         descripcion: bien.descripcion,
         precio: bien.precio,
-        fecha: new Date(),
         tipo: bien.tipo,
         marca: bien.marca,
         modelo: bien.modelo,
         imei: bien.imei,
-        stock: cantidadComprada,
-        createdAt: new Date(),
-        updatedAt: new Date()
-      }, { transaction });
-    }
-
-    // Registrar la transacción
-    await Transaccion.create({
-      bienId,
-      vendedorId: bien.vendedorId,
-      compradorId,
-      cantidad: cantidadComprada,
-      monto,
-      fecha: new Date(),
-      estado: 'pendiente',
-      tipoTransaccion: 'Venta'
-    }, { transaction });
-
-    await transaction.commit();
-    res.status(200).json({ message: 'Venta registrada con éxito' });
+        stock: bien.stock,
+      },
+    });
   } catch (error) {
+    // Rollback de la transacción en caso de error
     await transaction.rollback();
-    res.status(500).json({ message: 'Error al registrar la venta', error: error.message });
+    console.error("Error al registrar la venta:", error);
+    res.status(500).json({
+      mensaje: "Error al registrar la transacción",
+      error: error.message,
+    });
   }
 };
+
+
+
+
 const registrarCompra = async (req, res) => {
   const {
-      bienId,
-      compradorId,
-      vendedorId,
-      precio,
-      descripcion,
-      tipo,
-      marca,
-      modelo,
-      imei,
-      cantidad,
-      metodoPago,
+    bienId,
+    compradorId,
+    vendedorId,
+    precio,
+    descripcion,
+    tipo,
+    marca,
+    modelo,
+    imei,
+    cantidad,
+    metodoPago,
   } = req.body;
 
   console.log('Datos recibidos en la compra:', req.body);
 
   // Validar que los datos necesarios estén presentes
   if (!bienId || !compradorId || !vendedorId || !precio || !cantidad || !metodoPago || !tipo || !marca || !modelo) {
-      return res.status(400).json({ mensaje: "Faltan datos necesarios para registrar la compra." });
+    return res.status(400).json({ mensaje: "Faltan datos necesarios para registrar la compra." });
   }
 
   // Verificar si imei es necesario según el tipo
   if (tipo === 'Teléfono móvil' && !imei) {
-      return res.status(400).json({ mensaje: "Faltan datos necesarios: imei es requerido para teléfonos móviles." });
+    return res.status(400).json({ mensaje: "Faltan datos necesarios: imei es requerido para teléfonos móviles." });
   }
 
   console.log("Datos después de validaciones:", req.body);
@@ -588,93 +652,93 @@ const registrarCompra = async (req, res) => {
   const transaction = await sequelize.transaction();
 
   try {
-      // Verificar si el bien existe
-      let bien = await Bien.findOne({
-          where: { uuid: bienId },
-          transaction, // Usar la transacción actual
-      });
+    // Verificar si el bien existe
+    let bien = await Bien.findOne({
+      where: { uuid: bienId },
+      transaction, // Usar la transacción actual
+    });
 
-      console.log("Bien a crear:", bien);
+    console.log("Bien a crear:", bien);
 
-      if (!bien) {
-          // Crear un nuevo bien
-          bien = await Bien.create({
-              uuid: bienId,
-              vendedorId,
-              compradorId,
-              descripcion,
-              precio,
-              fecha: new Date(),
-              tipo,
-              marca,
-              modelo,
-              imei,
-              stock: cantidad,
-              createdAt: new Date(),
-              updatedAt: new Date(),
-          }, { transaction });
-
-          console.log("Bien creado:", bien); // Verifica si se creó correctamente
-      } else {
-          // Si el bien ya existe, actualizar el stock
-          bien.stock += cantidad;
-          await bien.save({ transaction });
-          console.log("Stock actualizado del bien existente:", bien);
-      }
-
-      // Registrar la transacción
-      const transaccion = await Transaccion.create({
-          bienId: bien.uuid, // Asegúrate de que bienId sea el UUID correcto
-          compradorId,
-          vendedorId,
-          cantidad,
-          monto: precio * cantidad,
-          metodoPago,
-          fecha: new Date(),
-          estado: 'pendiente',
-          tipoTransaccion: 'Compra',
+    if (!bien) {
+      // Crear un nuevo bien
+      bien = await Bien.create({
+        uuid: bienId,
+        vendedorId,
+        compradorId,
+        descripcion,
+        precio,
+        fecha: new Date(),
+        tipo,
+        marca,
+        modelo,
+        imei,
+        stock: cantidad,
+        createdAt: new Date(),
+        updatedAt: new Date(),
       }, { transaction });
 
-      // Commit de la transacción
-      await transaction.commit();
+      console.log("Bien creado:", bien); // Verifica si se creó correctamente
+    } else {
+      // Si el bien ya existe, actualizar el stock
+      bien.stock += cantidad;
+      await bien.save({ transaction });
+      console.log("Stock actualizado del bien existente:", bien);
+    }
 
-      res.status(201).json({
-          mensaje: "Compra registrada exitosamente",
-          transaccion: {
-              id: transaccion.id,
-              bienId: transaccion.bienId,
-              compradorId: transaccion.compradorId,
-              vendedorId: transaccion.vendedorId,
-              cantidad: transaccion.cantidad,
-              monto: transaccion.monto,
-              metodoPago: transaccion.metodoPago,
-              fecha: transaccion.fecha,
-              estado: transaccion.estado,
-              tipoTransaccion: transaccion.tipoTransaccion,
-          },
-          bien: {
-              uuid: bien.uuid,
-              vendedorId: bien.vendedorId,
-              compradorId: bien.compradorId,
-              descripcion: bien.descripcion,
-              precio: bien.precio,
-              fecha: bien.fecha,
-              tipo: bien.tipo,
-              marca: bien.marca,
-              modelo: bien.modelo,
-              imei: bien.imei,
-              stock: bien.stock,
-          },
-      });
+    // Registrar la transacción
+    const transaccion = await Transaccion.create({
+      bienId: bien.uuid, // Asegúrate de que bienId sea el UUID correcto
+      compradorId,
+      vendedorId,
+      cantidad,
+      monto: precio * cantidad,
+      metodoPago,
+      fecha: new Date(),
+      estado: 'pendiente',
+      tipoTransaccion: 'Compra',
+    }, { transaction });
+
+    // Commit de la transacción
+    await transaction.commit();
+
+    res.status(201).json({
+      mensaje: "Compra registrada exitosamente",
+      transaccion: {
+        id: transaccion.id,
+        bienId: transaccion.bienId,
+        compradorId: transaccion.compradorId,
+        vendedorId: transaccion.vendedorId,
+        cantidad: transaccion.cantidad,
+        monto: transaccion.monto,
+        metodoPago: transaccion.metodoPago,
+        fecha: transaccion.fecha,
+        estado: transaccion.estado,
+        tipoTransaccion: transaccion.tipoTransaccion,
+      },
+      bien: {
+        uuid: bien.uuid,
+        vendedorId: bien.vendedorId,
+        compradorId: bien.compradorId,
+        descripcion: bien.descripcion,
+        precio: bien.precio,
+        fecha: bien.fecha,
+        tipo: bien.tipo,
+        marca: bien.marca,
+        modelo: bien.modelo,
+        imei: bien.imei,
+        stock: bien.stock,
+      },
+    });
   } catch (error) {
-      // Rollback de la transacción en caso de error
-      await transaction.rollback();
-      console.error("Error al registrar la compra:", error);
-      res.status(500).json({
-          mensaje: "Error al registrar la transacción",
-          error: error.message,
-          stack: error.stack // Incluye stack para depuración
-      });
+    // Rollback de la transacción en caso de error
+    await transaction.rollback();
+    console.error("Error al registrar la compra:", error);
+    res.status(500).json({
+      mensaje: "Error al registrar la transacción",
+      error: error.message,
+      stack: error.stack // Incluye stack para depuración
+    });
   }
 };
 

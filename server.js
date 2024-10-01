@@ -3,6 +3,7 @@ const bodyParser = require('body-parser');
 const cors = require('cors');
 const cookieParser = require('cookie-parser');
 const sequelize = require('./src/config/db');
+const path = require('path');  // Importar el módulo 'path'
 
 // Importar modelos
 const { Usuario, Bien, Transaccion } = require('./src/models'); 
@@ -12,7 +13,10 @@ const PORT = process.env.PORT || 5000;
 
 // Configuración de CORS
 const corsOptions = {
-  origin: 'http://localhost:3000',
+  origin: [
+    'https://bienesmueblesfront.vercel.app', 
+    'http://localhost:3000'  
+  ],
   methods: ['GET', 'POST', 'PUT', 'DELETE'],
   allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: true,
@@ -35,6 +39,9 @@ app.use((req, res, next) => {
   });
   next();
 });
+
+// Servir la carpeta 'uploads' públicamente
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // Importar rutas
 const bienesRoutes = require('./src/routes/bienes');
