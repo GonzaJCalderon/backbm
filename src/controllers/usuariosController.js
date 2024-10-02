@@ -14,6 +14,16 @@ const secretKey = process.env.SECRET_KEY;
 
 // Crear un nuevo usuario
 
+const MESSAGES = {
+  USER_NOT_FOUND: 'Usuario no encontrado',
+  INVALID_CREDENTIALS: 'Credenciales inválidas',
+  ACCOUNT_NOT_APPROVED: 'Cuenta no aprobada',
+  USER_REGISTERED: 'Usuario registrado con éxito',
+  USER_UPDATED: 'Usuario actualizado correctamente',
+  // ... otros mensajes
+};
+
+
 const crearUsuario = async (req, res) => {
   const { nombre, apellido, email, password, direccion, cuit, dni, tipo, rolDefinitivo } = req.body;
 
@@ -575,6 +585,12 @@ const cambiarRol = async (req, res) => {
   }
 };
 
+// controllers/usuariosController.js
+
+const User = require('../models/User');
+
+
+
 
 
 module.exports = {
@@ -598,6 +614,6 @@ module.exports = {
   asignarRolTemporal,
   obtenerRolTemporal,
   removerRolTemporal,
-  cambiarRol
+  cambiarRol,
   
 };

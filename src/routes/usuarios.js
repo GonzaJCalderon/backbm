@@ -52,7 +52,7 @@ router.get('/:id/compras-ventas', verifyToken, usuarioController.obtenerComprasV
 router.get('/compras-ventas', verifyToken, usuarioController.obtenerComprasVentas);
 
 // Ruta para aprobar un usuario (protegida)
-router.put('/:id/aprobar', usuarioController.aprobarUsuario);
+router.put('/:id/aprobar', verifyToken, usuarioController.aprobarUsuario);
 
 // Ruta para rechazar un usuario (protegida)
 router.put('/:id/rechazar', verifyToken, usuarioController.rechazarUsuario);
@@ -61,7 +61,6 @@ router.put('/:id/rechazar', verifyToken, usuarioController.rechazarUsuario);
 router.get('/usuarios-pendientes', verifyToken, usuarioController.obtenerUsuariosPendientes);
 
 // Ruta para cambiar el rol del usuario a 'administrador'
-router.put('/:id/cambiar-rol', usuarioController.cambiarRol);
-
+router.put('/:id/cambiar-rol', verifyToken, usuarioController.cambiarRol);
 
 module.exports = router;
