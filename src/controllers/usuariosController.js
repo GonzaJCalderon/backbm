@@ -585,9 +585,6 @@ const cambiarRol = async (req, res) => {
   }
 };
 
-// controllers/usuariosController.js
-
-const User = require('../models/User');
 
 
 
