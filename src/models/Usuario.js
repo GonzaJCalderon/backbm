@@ -30,8 +30,9 @@ const Usuario = sequelize.define('Usuario', {
     allowNull: false,
   },
   direccion: {
-    type: DataTypes.STRING,
-    allowNull: true,
+    type: DataTypes.JSON, // Puedes usar JSON para almacenar múltiples detalles de dirección
+    allowNull: false,
+    defaultValue: {}
   },
   rolTemporal: {
     type: DataTypes.STRING,
@@ -50,6 +51,20 @@ const Usuario = sequelize.define('Usuario', {
   estado: {
     type: DataTypes.ENUM('pendiente', 'aprobado', 'rechazado'),
     defaultValue: 'pendiente',
+  },
+  motivoRechazo: { 
+    type: DataTypes.STRING,
+    allowNull: true,
+  },
+  // Nuevo campo para registrar quién rechazó
+  rechazadoPor: {
+    type: DataTypes.INTEGER, // Asumiendo que el ID del admin que rechaza es un entero
+    allowNull: true,
+  },
+  // Nuevo campo para la fecha y hora del rechazo
+  fechaRechazo: {
+    type: DataTypes.DATE,
+    allowNull: true,
   }
 }, {
   tableName: 'usuarios',

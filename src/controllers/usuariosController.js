@@ -23,55 +23,53 @@ const MESSAGES = {
   // ... otros mensajes
 };
 
-
 const crearUsuario = async (req, res) => {
-  const { nombre, apellido, email, password, direccion, cuit, dni, tipo, rolDefinitivo } = req.body;
+  const { nombre, apellido, email, password, direccion, cuit, dni, tipo } = req.body;
 
-  console.log(req.body); // Añadir esto para depurar
+  console.log(req.body); // Verificar datos recibidos
 
-  try {
-    // Validación de campos requeridos
-    if (!nombre || !apellido || !email || !password || !tipo) {
-      return res.status(400).json({ message: 'Todos los campos son obligatorios' });
-    }
-
-    // Verificar si el email ya existe
-    const existingUser = await Usuario.findOne({ where: { email } });
-    if (existingUser) {
-      return res.status(400).json({ message: 'El correo electrónico ya está registrado' });
-    }
-
-    // Hashear la contraseña
-    const hashedPassword = await bcrypt.hash(password, 10);
-
-    // Crear el nuevo usuario
-    const newUser = await Usuario.create({
-      nombre,
-      apellido,
-      email,
-      password: hashedPassword,
-      direccion: direccion || '', // Si no hay dirección, poner un string vacío
-      cuit,
-      dni,
-      tipo, // Puede ser 'admin' o 'usuario'
-      rolDefinitivo: rolDefinitivo === 'admin' ? 'admin' : 'usuario', // Asigna el rol basado en rolDefinitivo
-      estado: 'pendiente' // Deja el estado pendiente por ahora
-    });
-
-    // Crear token JWT
-    const token = jwt.sign(
-      { id: newUser.id, email: newUser.email, role: newUser.rolDefinitivo },
-      secretKey, // Usa la clave secreta desde .env
-      { expiresIn: '1h' } // Configuración de expiración del token
-    );
-
-    // Respuesta al cliente con el token
-    res.status(201).json({ message: 'Usuario registrado con éxito', newUser, token });
-  } catch (error) {
-    console.error('Error registrando usuario:', error);
-    res.status(500).json({ message: 'Error registrando usuario', error });
+  // Validación de campos requeridos
+  if (!nombre || !apellido || !email || !password || !tipo || !direccion) {
+    return res.status(400).json({ message: 'Todos los campos son obligatorios' });
   }
+
+  // Verificar si el email ya existe
+  const existingUser = await Usuario.findOne({ where: { email } });
+  if (existingUser) {
+    return res.status(400).json({ message: 'El correo electrónico ya está registrado' });
+  }
+
+  // Hashear la contraseña
+  const hashedPassword = await bcrypt.hash(password, 10);
+
+  // Crear el nuevo usuario
+  const newUser = await Usuario.create({
+    nombre,
+    apellido,
+    email,
+    password: hashedPassword,
+    direccion: {
+      calle: direccion.calle || '',
+      altura: direccion.altura || '',
+      barrio: direccion.barrio || '',
+      departamento: direccion.departamento || ''
+    },
+    cuit,
+    dni,
+    tipo,
+    estado: 'pendiente'
+  });
+
+  // Crear token JWT
+  const token = jwt.sign(
+    { id: newUser.id, email: newUser.email, role: newUser.rolDefinitivo },
+    secretKey,
+    { expiresIn: '1h' }
+  );
+
+  res.status(201).json({ message: 'Usuario registrado con éxito', newUser, token });
 };
+
 
 
 
@@ -181,8 +179,6 @@ const obtenerUsuarioPorDni = async (req, res) => {
 
 
 
-
-
 // Aprobar usuario
 // Aprobar usuario
 const aprobarUsuario = async (req, res) => {
@@ -213,6 +209,7 @@ const aprobarUsuario = async (req, res) => {
 // Rechazar usuario
 const rechazarUsuario = async (req, res) => {
   const { id } = req.params;
+  const { motivoRechazo, rechazadoPor } = req.body; // Asegúrate de que se envían estos datos
 
   try {
     const usuario = await Usuario.findByPk(id);
@@ -220,11 +217,18 @@ const rechazarUsuario = async (req, res) => {
       return res.status(404).json({ message: 'Usuario no encontrado' });
     }
 
+    // Asignar los valores correspondientes
     usuario.estado = 'rechazado';
+    usuario.motivoRechazo = motivoRechazo; // Asignar el motivo de rechazo
+    usuario.rechazadoPor = rechazadoPor; // Asignar el ID del administrador
+    usuario.fechaRechazo = new Date(); // Asignar la fecha actual de rechazo
+
     await usuario.save();
 
     // Enviar correo de rechazo
     await enviarCorreo(usuario.email, 'Rechazo de Cuenta', 'Tu cuenta ha sido rechazada', '<h1>Tu cuenta ha sido rechazada</h1>');
+
+    console.log(`Usuario con ID ${id} ha sido rechazado por el administrador con ID ${rechazadoPor}`);
 
     res.json({ message: 'Usuario rechazado correctamente', usuario });
   } catch (error) {
@@ -233,15 +237,27 @@ const rechazarUsuario = async (req, res) => {
 };
 
 
+
+
 // Obtener usuarios pendientes
 const obtenerUsuariosPendientes = async (req, res) => {
   try {
+    // Consulta para obtener usuarios con estado 'pendiente'
     const usuariosPendientes = await Usuario.findAll({ where: { estado: 'pendiente' } });
+    
+    // Verifica si hay usuarios pendientes
+    if (usuariosPendientes.length === 0) {
+      return res.status(404).json({ message: 'No hay usuarios pendientes' });
+    }
+    
+    // Devuelve los usuarios pendientes
     res.json(usuariosPendientes);
   } catch (error) {
-    res.status(500).json({ message: 'Error al obtener usuarios pendientes', error });
+    console.error('Error al obtener usuarios pendientes:', error); // Imprimir el error en la consola
+    res.status(500).json({ message: 'Error al obtener usuarios pendientes', error: error.message });
   }
 };
+
 
 // Registrar usuario por tercero
 // Registrar usuario por tercero
@@ -349,26 +365,35 @@ const obtenerCompradores = async (req, res) => {
 // Actualizar usuario
 // Actualizar usuario
 const actualizarUsuario = async (req, res) => {
-  const { id } = req.params;
-  const { firstName, lastName, email, address, password } = req.body;
+  const { id } = req.params; // Obtener el ID del usuario de los parámetros de la solicitud
+  const { nombre, apellido, email, direccion, password } = req.body; // Desestructurar los datos del cuerpo de la solicitud
 
   try {
+    // Buscar el usuario en la base de datos por su ID
     const usuario = await Usuario.findByPk(id);
     if (!usuario) {
-      return res.status(404).json({ message: 'Usuario no encontrado' });
+      return res.status(404).json({ message: 'Usuario no encontrado' }); // Retornar 404 si el usuario no existe
     }
 
-    if (firstName) usuario.nombre = firstName;
-    if (lastName) usuario.apellido = lastName;
+    // Actualizar los campos solo si se proporcionan
+    if (nombre) usuario.nombre = nombre;
+    if (apellido) usuario.apellido = apellido;
     if (email) usuario.email = email;
-    if (address) usuario.direccion = address;
-    if (password) usuario.password = await bcrypt.hash(password, 10);
+    if (direccion) usuario.direccion = direccion;
 
+    // Si se proporciona una nueva contraseña, hashearla antes de guardar
+    if (password) {
+      usuario.password = await bcrypt.hash(password, 10);
+    }
+
+    // Guardar los cambios en la base de datos
     await usuario.save();
 
+    // Responder con un mensaje de éxito y el usuario actualizado
     res.json({ message: 'Usuario actualizado correctamente', usuario });
   } catch (error) {
-    res.status(500).json({ message: 'Error al actualizar usuario', error });
+    console.error('Error al actualizar el usuario:', error); // Log de error para depuración
+    res.status(500).json({ message: 'Error al actualizar usuario', error }); // Retornar 500 en caso de error
   }
 };
 
@@ -586,6 +611,72 @@ const cambiarRol = async (req, res) => {
 };
 
 
+const obtenerUsuariosAprobados = async (req, res) => {
+  try {
+    // Consulta para obtener usuarios con estado 'aprobado'
+    const usuariosAprobados = await Usuario.findAll({
+      where: {
+        estado: 'aprobado' // Asegúrate de que el estado sea una cadena
+      }
+    });
+
+    // Verifica si hay usuarios aprobados
+    if (usuariosAprobados.length === 0) {
+      return res.status(404).json({ message: 'No se encontraron usuarios aprobados' });
+    }
+
+    // Devuelve los usuarios aprobados
+    res.status(200).json(usuariosAprobados);
+  } catch (error) {
+    console.error('Error al obtener usuarios aprobados:', error);
+    res.status(500).json({ message: 'Error al obtener usuarios aprobados' });
+  }
+};
+
+// Controller para obtener usuarios rechazados
+// Controller para obtener usuarios rechazados
+const obtenerUsuariosRechazados = async (req, res) => {
+  try {
+    // Consulta para obtener usuarios con estado 'rechazado'
+    const usuariosRechazados = await Usuario.findAll({
+      where: {
+        estado: 'rechazado' // Usa el valor como string
+      }
+    });
+
+    // Verifica si hay usuarios rechazados
+    if (usuariosRechazados.length === 0) {
+      return res.status(404).json({ message: 'No se encontraron usuarios rechazados' });
+    }
+
+    // Devuelve los usuarios rechazados, incluyendo toda la información
+    const usuariosConInfoCompleta = usuariosRechazados.map(usuario => ({
+      id: usuario.id,
+      nombre: usuario.nombre,
+      apellido: usuario.apellido,
+      dni: usuario.dni,
+      cuit: usuario.cuit,
+      email: usuario.email,
+      password: usuario.password,
+      direccion: usuario.direccion,
+      rolTemporal: usuario.rolTemporal,
+      rolDefinitivo: usuario.rolDefinitivo,
+      tipo: usuario.tipo,
+      estado: usuario.estado,
+      motivoRechazo: usuario.motivoRechazo, // Asegúrate de que este campo esté definido en tu modelo
+      rechazadoPor: usuario.rechazadoPor,   // Incluye el ID del admin que rechazó
+      fechaRechazo: usuario.fechaRechazo    // Incluye la fecha de rechazo
+    }));
+
+    res.status(200).json(usuariosConInfoCompleta);
+  } catch (error) {
+    console.error('Error al obtener usuarios rechazados:', error);
+    res.status(500).json({ message: 'Error al obtener usuarios rechazados' });
+  }
+};
+
+
+
 
 
 
@@ -610,7 +701,8 @@ module.exports = {
   obtenerComprasVentas,
   asignarRolTemporal,
   obtenerRolTemporal,
+  obtenerUsuariosAprobados,
   removerRolTemporal,
   cambiarRol,
-  
+  obtenerUsuariosRechazados,
 };

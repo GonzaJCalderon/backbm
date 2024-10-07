@@ -3,8 +3,6 @@ const router = express.Router();
 const usuarioController = require('../controllers/usuariosController');
 const verifyToken = require('../middlewares/authMiddleware');
 
-
-
 // Ruta para registrar un usuario
 router.post('/register', usuarioController.crearUsuario);
 
@@ -25,6 +23,11 @@ router.get('/usuario/detalles', verifyToken, usuarioController.obtenerUsuarioDet
 
 // Ruta para obtener todos los compradores (protegida)
 router.get('/compradores', verifyToken, usuarioController.obtenerCompradores);
+
+// Ruta para obtener usuarios pendientes (protegida)
+
+router.get('/usuarios/pendientes', verifyToken, usuarioController.obtenerUsuariosPendientes);
+
 
 // Ruta para obtener un usuario por su ID (protegida)
 router.get('/:id', verifyToken, usuarioController.obtenerUsuarioPorId);
@@ -59,10 +62,15 @@ router.put('/:id/aprobar', verifyToken, usuarioController.aprobarUsuario);
 // Ruta para rechazar un usuario (protegida)
 router.put('/:id/rechazar', verifyToken, usuarioController.rechazarUsuario);
 
-// Ruta para obtener usuarios pendientes (protegida)
-router.get('/usuarios-pendientes', verifyToken, usuarioController.obtenerUsuariosPendientes);
+
+// Ruta para obtener todos los usuarios aprobados (protegida)
+router.get('/usuarios/aprobados', verifyToken, usuarioController.obtenerUsuariosAprobados);
+
+// Ruta para obtener todos los usuarios aprobados (protegida)
+router.get('/usuarios/rechazados', verifyToken, usuarioController.obtenerUsuariosRechazados);
 
 // Ruta para cambiar el rol del usuario a 'administrador'
 router.put('/:id/cambiar-rol', verifyToken, usuarioController.cambiarRol);
 
 module.exports = router;
+ 
