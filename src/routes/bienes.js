@@ -1,19 +1,16 @@
 const express = require('express');
 const router = express.Router();
-const { Transaccion } = require('../models'); 
+const { Bien } = require('../models');  // Importa el modelo Bien
+const { Transaccion } = require('../models');
 const { Usuario } = require('../models'); 
 const bienesController = require('../controllers/bienesController');
-const { obtenerTransaccionesPorUsuario } = require('../controllers/bienesController');
 const verifyToken = require('../middlewares/authMiddleware');
-const multer = require('multer');
-const upload = require('../config/multerConfig'); 
-
+const upload = require('../config/multerConfig');  // Asegúrate de que config esté bien
 
 
 // Ruta para obtener todos los bienes
 router.get('/', bienesController.obtenerBienes);
 
-// Ruta para crear un nuevo bien
 // Ruta para crear un nuevo bien
 router.post('/', verifyToken, upload.fields([
   { name: 'fotos', maxCount: 3 }
@@ -23,7 +20,6 @@ router.post('/', verifyToken, upload.fields([
   }
   next();
 }, bienesController.crearBien);
-
 
 // Ruta para obtener un bien por su ID
 router.get('/:id', bienesController.obtenerBienPorId);
@@ -43,28 +39,35 @@ router.post('/subir-stock', upload.single('archivoExcel'), bienesController.subi
 // Ruta para obtener transacciones por ID de bien
 router.get('/transacciones/bien/:id', bienesController.obtenerTransaccionesPorBien);
 
+// Ruta para obtener la trazabilidad de un bien por su UUID
+router.get('/trazabilidad/:uuid',  bienesController.obtenerTrazabilidadPorBien);
 
-router.get('/trazabilidad/:uuid',  bienesController.obtenerTrazabilidadPorBien); // Cambia bienId a uuid
-
-
-// Ruta para obtener transacciones por ID de usuario
 // Ruta para obtener transacciones por ID de usuario
 router.get('/transacciones/usuario/:userId', bienesController.obtenerTransaccionesPorUsuario);
-
 
 // Ruta para obtener el stock de bienes de un usuario
 router.get('/usuario/:userId/stock', verifyToken, bienesController.obtenerBienesDisponibles);
 
-// Ruta para registrar una compra
-router.post('/comprar', verifyToken, bienesController.registrarCompra);
+router.post('/comprar', 
+  verifyToken, 
+  async (req, res, next) => {
+    const { bienId } = req.body;
+    const bienExistente = await Bien.findOne({ where: { uuid: bienId } });
+
+    if (!bienExistente) {
+      upload.fields([{ name: 'fotos', maxCount: 3 }])(req, res, next);
+    } else {
+      next();
+    }
+  },
+  bienesController.registrarCompra
+);
+
 
 // Ruta para obtener bienes en stock
 router.get('/stock', bienesController.obtenerBienesStock);
 
 // Ruta para registrar una venta
 router.post('/vender', verifyToken, bienesController.registrarVenta);
-
-
-
 
 module.exports = router;

@@ -1,4 +1,3 @@
-// src/config/multerConfig.js
 const multer = require('multer');
 const path = require('path');
 
@@ -12,10 +11,24 @@ const storage = multer.diskStorage({
   }
 });
 
+// Configuración del middleware de Multer
 const upload = multer({
   storage: storage,
-  limits: { fileSize: 5 * 1024 * 1024 }, // Límite de 5 MB por archivo
-});
+  limits: {
+    fileSize: 5 * 1024 * 1024 // Límite de 5 MB por archivo
+  },
+  fileFilter: (req, file, cb) => {
+    // Aceptar solo ciertos tipos de archivos
+    const filetypes = /jpeg|jpg|png|gif/; // Cambia esto según tus necesidades
+    const mimetype = filetypes.test(file.mimetype);
+    const extname = filetypes.test(path.extname(file.originalname).toLowerCase());
 
+    if (mimetype && extname) {
+      return cb(null, true);
+    } else {
+      cb(new Error('Error: Solo se permiten imágenes (JPEG, PNG, GIF)'));
+    }
+  }
+});
 
 module.exports = upload;
