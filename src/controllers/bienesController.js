@@ -92,46 +92,55 @@ const obtenerBienesStock = async (req, res) => {
 };
 
 // Crear un nuevo bien
-// src/controllers/bienesController.js
 const crearBien = async (req, res) => {
   try {
     console.log('Datos del cuerpo:', req.body);
     console.log('Archivos recibidos:', req.files);
 
-    const { descripcion, precio, tipo, marca, modelo, stock, vendedorId, fecha } = req.body;
+    const { descripcion, precio, tipo, marca, modelo, cantidad, vendedorId, fecha } = req.body;
 
+    // Verificar que las fotos existan
     const fotos = req.files['fotos'];
     if (!fotos || fotos.length === 0) {
       return res.status(400).json({ mensaje: 'No se han cargado fotos' });
     }
 
-    if (!descripcion || !precio || !tipo || !marca || !modelo || !stock || !vendedorId || !fecha) {
+    // Validar campos obligatorios
+    if (!descripcion || !precio || !tipo || !marca || !modelo || cantidad === undefined || !vendedorId || !fecha) {
       return res.status(400).json({ mensaje: 'Faltan datos necesarios para crear el bien' });
     }
 
-    // Guarda los nombres de archivo de las fotos como una cadena separada por comas
+    // Convertir a números
+    const precioNum = parseFloat(precio);
+    const cantidadNum = parseInt(cantidad, 10);
+    
+    if (isNaN(precioNum) || isNaN(cantidadNum)) {
+      return res.status(400).json({ mensaje: 'El precio o la cantidad no son válidos' });
+    }
+
+    // Guardar nombres de las fotos en una cadena separada por comas
     const fotosNombres = fotos.map(f => f.filename).join(',');
 
-    const nuevoBien = await Bien.create({
-      descripcion,
-      precio,
-      tipo,
-      marca,
-      modelo,
-      stock,
-      vendedorId,
-      fecha,
-      foto: fotosNombres // Guarda los nombres de archivo de las fotos
-    });
+    // Crear el nuevo bien
+    try {
+      const nuevoBien = await Bien.create({
+        descripcion,
+        precio: precioNum,
+        tipo,
+        marca,
+        modelo,
+        stock: cantidadNum,
+        vendedorId,
+        fecha,
+        foto: fotosNombres
+      });
 
-    res.status(201).json({
-      mensaje: "Bien creado con éxito",
-      id: nuevoBien.uuid,
-      nuevoBien
-    });
+      res.status(201).json(nuevoBien); // Responder con el nuevo bien creado
+    } catch (error) {
+      res.status(500).json({ mensaje: 'Error al crear el bien: ' + error.message });
+    }
   } catch (error) {
-    console.error('Error al crear el bien:', error);
-    res.status(500).json({ mensaje: "Error al crear el bien", error: error.message || error });
+    res.status(500).send({ error: 'Error en el controlador: ' + error.message });
   }
 };
 
@@ -254,7 +263,7 @@ const registrarTransaccion = async (req, res, tipoTransaccion) => {
   }
 
   const transaction = await sequelize.transaction();
-  
+
   try {
     let bien = await Bien.findOne({ where: { uuid: bienId }, transaction });
 
@@ -641,36 +650,33 @@ const registrarCompra = async (req, res) => {
     metodoPago,
   } = req.body;
 
-  // Buscar si el bien ya existe
-  let bienExistente = await Bien.findOne({ where: { uuid: bienId } });
-
-  // Verificar si se trata de un bien nuevo y si se han subido fotos solo en ese caso
-  let fotosNombres = [];
-  if (!bienExistente) {
-    const fotos = req.files ? req.files['fotos'] : null;
-    if (!fotos || fotos.length === 0) {
-      return res.status(400).json({ mensaje: 'No se han cargado fotos para el bien nuevo' });
-    }
-    fotosNombres = fotos.map(file => file.filename);
-  }
-
-  // Comprobar campos requeridos
+  // Validar los campos obligatorios
   const requiredFields = [bienId, compradorId, vendedorId, precio, cantidad, metodoPago, tipo, marca, modelo];
   if (requiredFields.some(field => !field)) {
     return res.status(400).json({ mensaje: "Faltan datos necesarios para registrar la compra." });
   }
 
-  // Comprobar si el IMEI es necesario
+  // Validar IMEI para teléfonos móviles
   if (tipo === 'Teléfono móvil' && !imei) {
-    return res.status(400).json({ mensaje: "Faltan datos necesarios: imei es requerido para teléfonos móviles." });
+    return res.status(400).json({ mensaje: "IMEI es requerido para teléfonos móviles." });
   }
 
-  // Iniciar la transacción
+  // Iniciar una transacción
   const transaction = await sequelize.transaction();
 
   try {
+    // Buscar si el bien ya existe
+    let bienExistente = await Bien.findOne({ where: { uuid: bienId } });
+
     // Si el bien no existe, crear uno nuevo
+    let fotosNombres = [];
     if (!bienExistente) {
+      const fotos = req.files ? req.files['fotos'] : null;
+      if (!fotos || fotos.length === 0) {
+        return res.status(400).json({ mensaje: 'No se han cargado fotos para el bien nuevo' });
+      }
+      fotosNombres = fotos.map(file => file.filename);
+
       bienExistente = await Bien.create({
         uuid: bienId,
         vendedorId,
@@ -683,14 +689,14 @@ const registrarCompra = async (req, res) => {
         modelo,
         imei,
         stock: cantidad,
-        fotos: fotosNombres.join(','), // Guardar los nombres de las fotos como cadena separada por comas
+        fotos: fotosNombres.join(','), // Guardar nombres de las fotos
         createdAt: new Date(),
         updatedAt: new Date(),
       }, { transaction });
     } else {
       // Si el bien existe, actualizar stock y fotos
       bienExistente.stock += cantidad;
-      bienExistente.fotos = bienExistente.fotos 
+      bienExistente.fotos = bienExistente.fotos
         ? Array.from(new Set([...bienExistente.fotos.split(','), ...fotosNombres])).join(',')
         : fotosNombres.join(',');
       await bienExistente.save({ transaction });
@@ -719,6 +725,7 @@ const registrarCompra = async (req, res) => {
       bienId: bienExistente.uuid,
     });
   } catch (error) {
+    // Revertir la transacción en caso de error
     await transaction.rollback();
     console.error("Error al registrar la compra:", error);
     res.status(500).json({
@@ -726,7 +733,7 @@ const registrarCompra = async (req, res) => {
       error: error.message,
     });
   }
-}
+};
 
 
 

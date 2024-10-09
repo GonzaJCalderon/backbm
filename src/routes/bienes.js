@@ -12,6 +12,7 @@ const upload = require('../config/multerConfig');  // Asegúrate de que config e
 router.get('/', bienesController.obtenerBienes);
 
 // Ruta para crear un nuevo bien
+// Ruta para crear un nuevo bien
 router.post('/', verifyToken, upload.fields([
   { name: 'fotos', maxCount: 3 }
 ]), (err, req, res, next) => {
@@ -19,7 +20,14 @@ router.post('/', verifyToken, upload.fields([
       return res.status(400).send({ error: err.message });
   }
   next();
-}, bienesController.crearBien);
+}, async (req, res) => {
+  try {
+    await bienesController.crearBien(req, res);
+  } catch (error) {
+    res.status(500).send({ error: 'Error en el controlador: ' + error.message });
+  }
+});
+
 
 // Ruta para obtener un bien por su ID
 router.get('/:id', bienesController.obtenerBienPorId);
@@ -48,20 +56,23 @@ router.get('/transacciones/usuario/:userId', bienesController.obtenerTransaccion
 // Ruta para obtener el stock de bienes de un usuario
 router.get('/usuario/:userId/stock', verifyToken, bienesController.obtenerBienesDisponibles);
 
-router.post('/comprar', 
-  verifyToken, 
-  async (req, res, next) => {
-    const { bienId } = req.body;
+router.post('/comprar', verifyToken, async (req, res, next) => {
+  const { bienId } = req.body;
+
+  try {
     const bienExistente = await Bien.findOne({ where: { uuid: bienId } });
 
     if (!bienExistente) {
-      upload.fields([{ name: 'fotos', maxCount: 3 }])(req, res, next);
-    } else {
-      next();
-    }
-  },
-  bienesController.registrarCompra
-);
+      return res.status(404).send({ error: 'El bien no existe' });
+    } 
+
+    // Si el bien existe, puedes manejar la lógica de compra aquí
+    next(); // Si no hay errores, sigue con el siguiente middleware
+  } catch (error) {
+    res.status(500).send({ error: 'Error al verificar el bien: ' + error.message });
+  }
+}, bienesController.registrarCompra);
+
 
 
 // Ruta para obtener bienes en stock

@@ -30,7 +30,7 @@ const Usuario = sequelize.define('Usuario', {
     allowNull: false,
   },
   direccion: {
-    type: DataTypes.JSON, // Puedes usar JSON para almacenar múltiples detalles de dirección
+    type: DataTypes.JSON, 
     allowNull: false,
     defaultValue: {}
   },
