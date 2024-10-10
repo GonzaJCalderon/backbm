@@ -1,26 +1,23 @@
-require('dotenv').config(); // Asegúrate de que esto esté al principio
-
 const { Sequelize } = require('sequelize');
-const { DB_USER, DB_PASSWORD, DB_NAME, DB_HOST, DB_PORT } = process.env; 
+
+// Carga las variables de entorno
+require('dotenv').config();
 
 // Verifica que las variables de entorno están cargadas
 console.log('Database config:', {
-  DB_NAME,
-  DB_USER,
-  DB_PASSWORD,
-  DB_HOST,
-  DB_PORT
+  DB_NAME: process.env.DB_NAME,
+  DB_USER: process.env.DB_USER,
+  DB_PASSWORD: process.env.DB_PASSWORD,
+  DB_HOST: process.env.DB_HOST,
+  DB_PORT: process.env.DB_PORT
 });
 
+// Configuración correcta de Sequelize
 const sequelize = new Sequelize(
-  DB_NAME,
-  DB_USER,
-  DB_PASSWORD,
+  `postgres://${process.env.DB_USER}:${process.env.DB_PASSWORD}@${process.env.DB_HOST}:${process.env.DB_PORT}/${process.env.DB_NAME}`,
   {
-    host: DB_HOST,
-    port: DB_PORT,
-    dialect: 'postgres',
-    logging: false,
+    logging: false, // Cambia a true si necesitas ver las consultas SQL
+    native: false,
   }
 );
 

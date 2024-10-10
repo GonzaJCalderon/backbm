@@ -7,8 +7,9 @@ const sequelize = require('./src/config/db'); // Configuración de Sequelize
 const path = require('path');
 const upload = require('./src/config/multerConfig'); // Asegúrate de que esta ruta sea correcta
 
-// Importar modelos
+// Importar modelos y definir asociaciones
 const { Usuario, Bien, Transaccion } = require('./src/models');
+const defineAssociations = require('./src/models/associations'); // Asegúrate de que esta ruta sea correcta
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -65,6 +66,8 @@ app.use('/stock', stockRoutes);
 sequelize.authenticate()
   .then(() => {
     console.log('Conexión a la base de datos exitosa');
+    // Llamar a la función de definir asociaciones aquí
+    defineAssociations(); // Asegúrate de que esta función esté bien definida en tu archivo de asociaciones
   })
   .catch(err => {
     console.error('No se pudo conectar a la base de datos:', err);
