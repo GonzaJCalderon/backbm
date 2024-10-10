@@ -9,7 +9,7 @@ const upload = require('./src/config/multerConfig'); // Asegúrate de que esta r
 
 // Importar modelos y definir asociaciones
 const { Usuario, Bien, Transaccion } = require('./src/models');
-const defineAssociations = require('./src/models/associations'); // Asegúrate de que esta ruta sea correcta
+const defineAssociations = require('./src/models/index'); // Asegúrate de que esta ruta sea correcta
 
 const app = express();
 const PORT = process.env.PORT || 5000;
