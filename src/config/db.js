@@ -1,4 +1,5 @@
-require('dotenv').config(); // Debe estar al principio del archivo
+require('dotenv').config(); // Asegúrate de que esto esté al principio
+
 const { Sequelize } = require('sequelize');
 
 // Verifica que las variables de entorno están cargadas
@@ -16,6 +17,7 @@ const sequelize = new Sequelize(
   process.env.DB_PASSWORD,
   {
     host: process.env.DB_HOST,
+    port: process.env.DB_PORT,
     dialect: 'postgres',
     logging: false,
   }
