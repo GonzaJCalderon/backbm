@@ -1,8 +1,9 @@
 // Importar dependencias
+require('dotenv').config(); // Cargar variables de entorno
 const express = require('express');
 const cors = require('cors');
 const cookieParser = require('cookie-parser');
-const sequelize = require('./src/config/db');
+const sequelize = require('./src/config/db'); // Configuración de Sequelize
 const path = require('path');
 const upload = require('./src/config/multerConfig'); // Asegúrate de que esta ruta sea correcta
 
@@ -59,6 +60,15 @@ app.use('/usuarios', usuariosRoutes);
 app.use('/auth', authRoutes);
 app.use('/sales', salesRoutes);
 app.use('/stock', stockRoutes);
+
+// Verificar la conexión a la base de datos
+sequelize.authenticate()
+  .then(() => {
+    console.log('Conexión a la base de datos exitosa');
+  })
+  .catch(err => {
+    console.error('No se pudo conectar a la base de datos:', err);
+  });
 
 // Sincronizar la base de datos
 sequelize.sync({ alter: true })
