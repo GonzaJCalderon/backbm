@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { Bien } = require('../models');  // Importa el modelo Bien
 const { Transaccion } = require('../models');
-const { Usuario } = require('../models'); 
+const { Usuario } = require('../models');
 const bienesController = require('../controllers/bienesController');
 const verifyToken = require('../middlewares/authMiddleware');
 const upload = require('../config/multerConfig');  // Asegúrate de que config esté bien
@@ -12,12 +12,11 @@ const upload = require('../config/multerConfig');  // Asegúrate de que config e
 router.get('/', bienesController.obtenerBienes);
 
 // Ruta para crear un nuevo bien
-// Ruta para crear un nuevo bien
-router.post('/', verifyToken, upload.fields([
+router.post('/add/', upload.fields([
   { name: 'fotos', maxCount: 3 }
 ]), (err, req, res, next) => {
   if (err) {
-      return res.status(400).send({ error: err.message });
+    return res.status(400).send({ error: err.message });
   }
   next();
 }, async (req, res) => {
@@ -48,7 +47,7 @@ router.post('/subir-stock', upload.single('archivoExcel'), bienesController.subi
 router.get('/transacciones/bien/:id', bienesController.obtenerTransaccionesPorBien);
 
 // Ruta para obtener la trazabilidad de un bien por su UUID
-router.get('/trazabilidad/:uuid',  bienesController.obtenerTrazabilidadPorBien);
+router.get('/trazabilidad/:uuid', bienesController.obtenerTrazabilidadPorBien);
 
 // Ruta para obtener transacciones por ID de usuario
 router.get('/transacciones/usuario/:userId', bienesController.obtenerTransaccionesPorUsuario);
@@ -64,7 +63,7 @@ router.post('/comprar', verifyToken, async (req, res, next) => {
 
     if (!bienExistente) {
       return res.status(404).send({ error: 'El bien no existe' });
-    } 
+    }
 
     // Si el bien existe, puedes manejar la lógica de compra aquí
     next(); // Si no hay errores, sigue con el siguiente middleware

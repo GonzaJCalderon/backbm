@@ -36,7 +36,7 @@ exports.getSaleById = async (req, res) => {
   try {
     const bien = await Bien.findByPk(id);
     if (!bien || !bien.compradorId) return res.status(404).json({ error: 'Venta no encontrada' });
-    
+
     res.json(bien);
   } catch (error) {
     res.status(500).json({ error: error.message });

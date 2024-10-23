@@ -94,10 +94,10 @@ const obtenerBienesStock = async (req, res) => {
 // Crear un nuevo bien
 const crearBien = async (req, res) => {
   try {
-    console.log('Datos del cuerpo:', req.body);
+    console.log('Datos del cuerpo:', req.query);
     console.log('Archivos recibidos:', req.files);
 
-    const { descripcion, precio, tipo, marca, modelo, cantidad, vendedorId, fecha } = req.body;
+    const { descripcion, precio, tipo, marca, modelo, cantidad, vendedorId, fecha } = req.query;
 
     // Verificar que las fotos existan
     const fotos = req.files['fotos'];
@@ -113,7 +113,7 @@ const crearBien = async (req, res) => {
     // Convertir a números
     const precioNum = parseFloat(precio);
     const cantidadNum = parseInt(cantidad, 10);
-    
+
     if (isNaN(precioNum) || isNaN(cantidadNum)) {
       return res.status(400).json({ mensaje: 'El precio o la cantidad no son válidos' });
     }
