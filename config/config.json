@@ -1,0 +1,24 @@
+{
+  "development": {
+    "username": "dv_bm",
+    "password": "pass",
+    "database": "bienes_muebles",
+    "host": "10.100.1.80",
+    "port": "5432",
+    "dialect": "postgres"
+  },
+  "test": {
+    "username": "your_username",
+    "password": "your_password",
+    "database": "your_database_name",
+    "host": "127.0.0.1",
+    "dialect": "postgres"
+  },
+  "production": {
+    "username": "your_username",
+    "password": "your_password",
+    "database": "your_database_name",
+    "host": "127.0.0.1",
+    "dialect": "postgres"
+  }
+}
