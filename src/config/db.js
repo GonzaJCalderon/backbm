@@ -18,7 +18,7 @@ const { DB_BM, DB_USER, DB_PASS, DB_HOSTNAME, DB_PORT } = process.env
 // Configuración de Sequelize
 // Configuración de Sequelize
 const sequelize = new Sequelize('bienes_muebles', 'cchiera', 'Chiera+3', {
-  host: '10.100.1.80',
+  host: 'localhost',
   port: '5432',
   dialect: 'postgres',
   logging: console.log, // Cambia a true si necesitas ver las consultas SQL
