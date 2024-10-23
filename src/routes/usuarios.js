@@ -10,7 +10,7 @@ router.post('/register', usuarioController.crearUsuario);
 router.post('/login', usuarioController.loginUsuario);
 
 // Ruta para obtener todos los usuarios (protegida)
-router.get('/', usuarioController.obtenerUsuarios);
+router.get('/', verifyToken, usuarioController.obtenerUsuarios);
 
 // Ruta para obtener un usuario por DNI (protegida)
 router.get('/dni', verifyToken, usuarioController.obtenerUsuarioPorDni);
@@ -19,24 +19,24 @@ router.get('/dni', verifyToken, usuarioController.obtenerUsuarioPorDni);
 router.post('/register-usuario-por-tercero', usuarioController.registerUsuarioPorTercero);
 
 // Ruta para obtener los detalles del usuario autenticado (requiere autenticación)
-router.get('/usuario/detalles', usuarioController.obtenerUsuarioDetalles);
+router.get('/usuario/detalles', verifyToken, usuarioController.obtenerUsuarioDetalles);
 
 // Ruta para obtener todos los compradores (protegida)
 router.get('/compradores', verifyToken, usuarioController.obtenerCompradores);
 
 // Ruta para obtener usuarios pendientes (protegida)
 
-router.get('/usuarios/pendientes', usuarioController.obtenerUsuariosPendientes);
+router.get('/usuarios/pendientes', verifyToken, usuarioController.obtenerUsuariosPendientes);
 
 
 // Ruta para obtener un usuario por su ID (protegida)
-router.get('/:id', usuarioController.obtenerUsuarioPorId);
+router.get('/:id', verifyToken, usuarioController.obtenerUsuarioPorId);
 
 // Ruta para actualizar un usuario por su ID (protegida)
 router.put('/:id', verifyToken, usuarioController.actualizarUsuario);
 
 // Ruta para obtener detalles del usuario por su ID (protegida)
-router.get('/:id/detalles', usuarioController.obtenerUsuarioDetalles);
+router.get('/:id/detalles', verifyToken, usuarioController.obtenerUsuarioDetalles);
 
 // Ruta para eliminar un usuario por su ID (protegida)
 router.delete('/:id', verifyToken, usuarioController.eliminarUsuario);
@@ -57,7 +57,7 @@ router.get('/:id/compras-ventas', verifyToken, usuarioController.obtenerComprasV
 router.get('/compras-ventas', verifyToken, usuarioController.obtenerComprasVentas);
 
 // Ruta para aprobar un usuario (protegida)
-router.put('/:id/aprobar', usuarioController.aprobarUsuario);
+router.put('/:id/aprobar', verifyToken, usuarioController.aprobarUsuario);
 
 // Ruta para rechazar un usuario (protegida)
 router.put('/:id/rechazar', verifyToken, usuarioController.rechazarUsuario);

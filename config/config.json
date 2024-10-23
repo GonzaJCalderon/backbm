@@ -1,10 +1,9 @@
 {
   "development": {
-    "username": "dv_bm",
-    "password": "pass",
+    "username": "postgres",
+    "password": "post",
     "database": "bienes_muebles",
-    "host": "10.100.1.80",
-    "port": "5432",
+    "host": "localhost",
     "dialect": "postgres"
   },
   "test": {

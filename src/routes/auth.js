@@ -7,7 +7,7 @@ const router = express.Router();
 const { loginUsuario } = require('../controllers/authController'); // Asegúrate de que esta ruta es correcta
 
 // Secret Key para JWT
-const SECRET_KEY = process.env.SECRET_KEY; 
+const SECRET_KEY = process.env.SECRET_KEY;
 
 // Ruta de registro
 router.post('/register', async (req, res) => {
