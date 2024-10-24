@@ -73,4 +73,3 @@ router.get('/usuarios/rechazados', verifyToken, usuarioController.obtenerUsuario
 router.put('/:id/cambiar-rol', verifyToken, usuarioController.cambiarRol);
 
 module.exports = router;
- 
