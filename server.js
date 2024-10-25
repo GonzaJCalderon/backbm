@@ -11,7 +11,7 @@ const upload = require('./src/config/multerConfig'); // Asegúrate de que esta r
 const { Usuario, Bien, Transaccion } = require('./src/models');
 
 const app = express();
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 5005;
 
 // Configuración de CORS
 const corsOptions = {
@@ -71,13 +71,13 @@ sequelize.authenticate()
   });
 
 // Sincronizar la base de datos
-sequelize.sync({ alter: true })
-  .then(() => {
-    console.log('Base de datos sincronizada');
-  })
-  .catch(error => {
-    console.error('Error al sincronizar la base de datos:', error);
-  });
+// sequelize.sync({ alter: true })
+//   .then(() => {
+//     console.log('Base de datos sincronizada');
+//   })
+//   .catch(error => {
+//     console.error('Error al sincronizar la base de datos:', error);
+//   });
 
 // Iniciar el servidor
 app.listen(PORT, () => {
