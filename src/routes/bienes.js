@@ -28,13 +28,13 @@ router.get('/:id', bienesController.obtenerBienPorId);
 router.post('/transaccion', verifyToken, bienesController.registrarTransaccion);
 
 // Ruta para actualizar un bien por su ID
-router.put('/:id', verifyToken, verificarPermisos(['admin']), bienesController.actualizarBien);
+router.put('/:id', verifyToken, verificarPermisos(['administrador']), bienesController.actualizarBien);
 
 // Ruta para eliminar un bien por su ID
-router.delete('/:id', verifyToken, verificarPermisos(['admin']), bienesController.eliminarBien);
+router.delete('/:id', verifyToken, verificarPermisos(['administrador']), bienesController.eliminarBien);
 
 // Ruta para subir y procesar el archivo Excel
-router.post('/subir-stock', upload.single('archivoExcel'), verificarPermisos(['admin']), bienesController.subirStockExcel);
+router.post('/subir-stock', upload.single('archivoExcel'), verificarPermisos(['administrador']), bienesController.subirStockExcel);
 
 // Ruta para obtener transacciones por ID de bien
 router.get('/transacciones/bien/:id', bienesController.obtenerTransaccionesPorBien);

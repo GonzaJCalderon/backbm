@@ -13,7 +13,7 @@ router.post('/login', usuarioController.loginUsuario);
 router.get('/', verifyToken, verificarPermisos(['administrador', 'moderador', ]), usuarioController.obtenerUsuarios);
 
 // Ruta para obtener un usuario por DNI (protegida y accesible solo para administrador)
-router.get('/dni', verifyToken, verificarPermisos(['administrador']), usuarioController.obtenerUsuarioPorDni);
+router.get('/dni', verifyToken, verificarPermisos(['administrador', 'moderador']), usuarioController.obtenerUsuarioPorDni);
 
 // Ruta para registrar usuario por tercero
 router.post('/register-usuario-por-tercero', usuarioController.registerUsuarioPorTercero);
@@ -22,7 +22,7 @@ router.post('/register-usuario-por-tercero', usuarioController.registerUsuarioPo
 router.get('/usuario/detalles', verifyToken, verificarPermisos(['administrador', 'moderador']), usuarioController.obtenerUsuarioDetalles);
 
 // Ruta para obtener todos los compradores (protegida y accesible solo para administrador)
-router.get('/compradores', verifyToken, verificarPermisos(['administrador']), usuarioController.obtenerCompradores);
+router.get('/compradores', verifyToken, verificarPermisos(['administrador', 'moderador']), usuarioController.obtenerCompradores);
 
 // Ruta para obtener usuarios pendientes (protegida y accesible solo para administrador)
 router.get('/usuarios/pendientes', verifyToken, verificarPermisos(['administrador']), usuarioController.obtenerUsuariosPendientes);
@@ -61,10 +61,10 @@ router.put('/:id/aprobar', verifyToken, verificarPermisos(['administrador']), us
 router.put('/:id/rechazar', verifyToken, verificarPermisos(['administrador']), usuarioController.rechazarUsuario);
 
 // Ruta para obtener todos los usuarios aprobados (protegida y accesible solo para administrador)
-router.get('/usuarios/aprobados', verifyToken, verificarPermisos(['administrador']), usuarioController.obtenerUsuariosAprobados);
+router.get('/usuarios/aprobados', verifyToken, verificarPermisos(['administrador', 'moderador']), usuarioController.obtenerUsuariosAprobados);
 
 // Ruta para obtener todos los usuarios rechazados (protegida y accesible solo para administrador)
-router.get('/usuarios/rechazados', verifyToken, verificarPermisos(['administrador']), usuarioController.obtenerUsuariosRechazados);
+router.get('/usuarios/rechazados', verifyToken, verificarPermisos(['administrador', 'moderador']), usuarioController.obtenerUsuariosRechazados);
 
 // Ruta para cambiar el rol del usuario a 'administrador' (protegida y accesible solo para administrador)
 router.put('/:id/cambiar-rol', verifyToken, verificarPermisos(['administrador']), usuarioController.cambiarRol);

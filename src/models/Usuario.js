@@ -39,7 +39,7 @@ const Usuario = sequelize.define('Usuario', {
     allowNull: true,
   },
   rolDefinitivo: {
-    type: DataTypes.ENUM('usuario', 'moderador', 'administrador'),  // Agregamos el rol 'moderador'
+    type: DataTypes.STRING,
     allowNull: true,
     defaultValue: 'usuario',
   },
