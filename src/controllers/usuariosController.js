@@ -425,46 +425,53 @@ const eliminarUsuario = async (req, res) => {
 };
 
 // Obtener compras y ventas por usuario
+// Obtener compras y ventas por usuario
 const obtenerComprasVentasPorUsuario = async (req, res) => {
   const { id } = req.params;
 
   try {
-    const comprasVentas = await Transaccion.findAll({
-      where: {
-        [Op.or]: [
-          { compradorId: id },
-          { vendedorId: id }
-        ]
-      },
+    const usuario = await Usuario.findByPk(id, {
       include: [
         {
-          model: Bien,
-          as: 'bien', // Usa el alias definido en la asociación
-          attributes: ['id', 'descripcion', 'precio', 'fecha']
+          model: Transaccion,
+          as: 'compras', // Cambia el alias según la asociación en tu modelo
+          include: [
+            {
+              model: Bien,
+              as: 'bien', // Usa el alias definido en la asociación
+              attributes: ['uuid', 'descripcion', 'precio', 'fecha'] // Cambia 'id' a 'uuid'
+            }
+          ],
+          attributes: ['id', 'compradorId', 'vendedorId', 'fecha'] // Agrega atributos relevantes de la transacción
         },
         {
-          model: Usuario,
-          as: 'comprador', // Usa el alias definido en la asociación
-          attributes: ['id', 'nombre', 'apellido']
-        },
-        {
-          model: Usuario,
-          as: 'vendedor', // Usa el alias definido en la asociación
-          attributes: ['id', 'nombre', 'apellido']
+          model: Transaccion,
+          as: 'ventas', // Cambia el alias según la asociación en tu modelo
+          include: [
+            {
+              model: Bien,
+              as: 'bien', // Usa el alias definido en la asociación
+              attributes: ['uuid', 'descripcion', 'precio', 'fecha'] // Cambia 'id' a 'uuid'
+            }
+          ],
+          attributes: ['id', 'compradorId', 'vendedorId', 'fecha'] // Agrega atributos relevantes de la transacción
         }
       ]
     });
 
-    if (!comprasVentas || comprasVentas.length === 0) {
-      return res.status(404).json({ message: 'No se encontraron transacciones para este usuario' });
+    if (!usuario) {
+      return res.status(404).json({ message: 'Usuario no encontrado' });
     }
 
-    res.json(comprasVentas);
+    // Si el usuario tiene transacciones, las incluirá en la respuesta
+    res.json(usuario);
   } catch (error) {
     console.error('Error al obtener compras y ventas:', error);
     res.status(500).json({ message: 'Error al obtener compras y ventas', error: error.message });
   }
 };
+
+
 // Obtener detalles de usuario
 const obtenerUsuarioDetalles = async (req, res) => {
   const { id } = req.params;
@@ -498,35 +505,48 @@ const obtenerUsuarioDetalles = async (req, res) => {
 
 
 
-// Obtener todas las compras y ventas por usuario
 const obtenerComprasVentas = async (req, res) => {
   const { id } = req.params;
 
   try {
-    const transacciones = await Transaccion.findAll({
-      where: { usuarioId: id },
+    const usuario = await Usuario.findByPk(id, {
       include: [
         {
           model: Bien,
-          attributes: ['id', 'descripcion', 'precio', 'fecha']
+          as: 'bienesComprados', // Asegúrate que el alias coincida con tu modelo
+          attributes: ['uuid', 'descripcion', 'precio', 'fecha']
         },
         {
-          model: Usuario,
-          as: 'usuario', // Asumiendo que tienes una asociación entre Transaccion y Usuario
-          attributes: ['id', 'nombre', 'apellido']
+          model: Bien,
+          as: 'bienesVendidos', // Asegúrate que el alias coincida con tu modelo
+          attributes: ['uuid', 'descripcion', 'precio', 'fecha']
         }
       ]
     });
 
-    if (!transacciones || transacciones.length === 0) {
-      return res.status(404).json({ message: 'No se encontraron transacciones para este usuario' });
+    if (!usuario) {
+      return res.status(404).json({ message: 'Usuario no encontrado' });
     }
 
-    res.json(transacciones);
+    const response = {
+      id: usuario.id,
+      nombre: usuario.nombre,
+      apellido: usuario.apellido,
+      dni: usuario.dni,
+      cuit: usuario.cuit,
+      email: usuario.email,
+      direccion: usuario.direccion,
+      bienesComprados: usuario.bienesComprados,
+      bienesVendidos: usuario.bienesVendidos,
+    };
+
+    res.json(response);
   } catch (error) {
-    res.status(500).json({ message: 'Error al obtener compras y ventas', error });
+    console.error('Error al obtener compras y ventas:', error);
+    res.status(500).json({ message: 'Error al obtener compras y ventas', error: error.message });
   }
 };
+
 
 // Asignar rol temporal
 const asignarRolTemporal = async (req, res) => {

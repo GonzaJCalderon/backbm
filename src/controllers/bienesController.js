@@ -236,7 +236,6 @@ const eliminarBien = async (req, res) => {
 };
 
 // Registrar una transacción
-// Registrar una transacción
 const registrarTransaccion = async (req, res) => {
   const {
     bienId,
@@ -254,7 +253,7 @@ const registrarTransaccion = async (req, res) => {
 
   console.log(`Datos recibidos para la transacción:`, req.body);
 
-  // Validaciones comunes
+  // Validaciones
   if (!bienId || !compradorId || !vendedorId || !precio || !cantidad || !metodoPago || !tipo || !marca || !modelo) {
     return res.status(400).json({ mensaje: "Faltan datos necesarios para registrar la transacción." });
   }
@@ -266,29 +265,26 @@ const registrarTransaccion = async (req, res) => {
   const transaction = await sequelize.transaction();
 
   try {
+    // Buscar el bien
     let bien = await Bien.findOne({ where: { uuid: bienId }, transaction });
 
     if (!bien) {
-      // Si es una compra y el bien no existe, se crea
-      if (req.body.tipoTransaccion === 'Compra') { // Cambiado aquí
-        bien = await Bien.create({
-          uuid: bienId,
-          vendedorId,
-          compradorId,
-          descripcion,
-          precio,
-          tipo,
-          marca,
-          modelo,
-          imei,
-          stock: cantidad,
-        }, { transaction });
-      } else {
-        return res.status(404).json({ mensaje: "El bien no existe." });
-      }
+      // Crear el bien si no existe
+      bien = await Bien.create({
+        uuid: bienId, // Asegúrate de que este UUID sea único y generado correctamente
+        vendedorId,
+        compradorId,
+        descripcion,
+        precio,
+        tipo,
+        marca,
+        modelo,
+        imei,
+        stock: cantidad, // Inicializar stock
+      }, { transaction });
     } else {
-      // Si ya existe, actualizar el stock o disminuirlo
-      if (req.body.tipoTransaccion === 'Venta') { // Cambiado aquí
+      // Actualizar stock existente
+      if (req.body.tipoTransaccion === 'Venta') {
         if (bien.stock < cantidad) {
           return res.status(400).json({ mensaje: "Stock insuficiente para realizar la venta." });
         }
@@ -309,7 +305,8 @@ const registrarTransaccion = async (req, res) => {
       metodoPago,
       fecha: new Date(),
       estado: 'pendiente',
-      tipoTransaccion: req.body.tipoTransaccion, // Cambiado aquí
+      // Asegúrate de que este campo exista en tu modelo Transaccion
+      tipoTransaccion: req.body.tipoTransaccion || 'Venta', // Usa 'Venta' por defecto
     }, { transaction });
 
     await transaction.commit();
@@ -325,6 +322,7 @@ const registrarTransaccion = async (req, res) => {
     res.status(500).json({ mensaje: "Error al registrar la transacción", error: error.message });
   }
 };
+
 
 
 
@@ -431,7 +429,6 @@ const obtenerBienesDisponibles = async (req, res) => {
     res.status(500).json({ message: 'Error interno del servidor', error: error.message });
   }
 };
-
 const obtenerTransaccionesPorUsuario = async (req, res) => {
   const { userId } = req.params;
 
@@ -464,11 +461,17 @@ const obtenerTransaccionesPorUsuario = async (req, res) => {
       ],
     });
 
+    // Imprime las transacciones encontradas para depuración
+    console.log('Transacciones encontradas:', transacciones);
+
+    if (!transacciones || transacciones.length === 0) {
+      return res.status(200).json({ message: 'No se encontraron transacciones para este usuario.' });
+    }
+
     const transaccionesJson = transacciones.map(transaccion => {
       const { bien, comprador, vendedor, ...transaccionData } = transaccion.toJSON();
       return {
         ...transaccionData,
-        'Código Único de identificación de operación': transaccionData.uuid,
         bien: {
           uuid: bien.uuid,
           descripcion: bien.descripcion,
@@ -498,18 +501,15 @@ const obtenerTransaccionesPorUsuario = async (req, res) => {
       };
     });
 
-    console.log('Transacciones encontradas:', transaccionesJson);
-
-    if (transaccionesJson.length === 0) {
-      return res.status(200).json({ message: 'No se encontraron transacciones para este usuario.' });
-    }
-
     res.json(transaccionesJson);
   } catch (error) {
     console.error('Error al obtener las transacciones:', error);
     res.status(500).json({ message: 'Error al obtener las transacciones.' });
   }
 };
+
+
+
 
 
 // Controlador para obtener la trazabilidad de un bien
