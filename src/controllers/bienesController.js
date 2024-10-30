@@ -8,6 +8,12 @@ const excelToJson = require('convert-excel-to-json');
 const fs = require('fs');
 const sequelize = require('../config/db');
 const { v4: isUUID } = require('uuid');
+const { validate: validateUUID } = require('uuid');
+
+
+const isValidUUID = (id) => {
+  return validateUUID(id);
+};
 
 // Obtener todos los bienes
 // Obtener todos los bienes
@@ -546,7 +552,6 @@ const obtenerTrazabilidadPorBien = async (req, res) => {
 };
 
 
-
 const registrarVenta = async (req, res) => {
   const {
     bienId,
@@ -557,10 +562,12 @@ const registrarVenta = async (req, res) => {
     metodoPago,
   } = req.body;
 
+  // Validación del UUID
   if (!isValidUUID(bienId)) {
     return res.status(400).json({ mensaje: "El bienId proporcionado no es un UUID válido." });
   }
   
+  // Validación del precio y cantidad
   if (precio <= 0 || cantidad <= 0) {
     return res.status(400).json({ mensaje: "El precio y la cantidad deben ser mayores a cero." });
   }
@@ -568,22 +575,27 @@ const registrarVenta = async (req, res) => {
   const transaction = await sequelize.transaction();
 
   try {
+    // Buscar el bien en la base de datos
     let bien = await Bien.findOne({
       where: { uuid: bienId },
       transaction,
     });
 
+    // Verificar si el bien existe
     if (!bien) {
       return res.status(404).json({ mensaje: "El bien no existe." });
     }
 
+    // Verificar si hay suficiente stock
     if (bien.stock < cantidad) {
       return res.status(400).json({ mensaje: "Stock insuficiente para realizar la venta." });
     }
 
+    // Actualizar el stock
     bien.stock -= cantidad;
     await bien.save({ transaction });
 
+    // Registrar la transacción
     const transaccion = await Transaccion.create({
       bienId: bien.uuid,
       compradorId,
@@ -596,15 +608,17 @@ const registrarVenta = async (req, res) => {
       tipoTransaccion: 'Venta',
     }, { transaction });
 
+    // Confirmar la transacción
     await transaction.commit();
 
+    // Responder al cliente
     res.status(201).json({
       mensaje: "Venta registrada exitosamente",
       transaccion,
       bien: { ...bien.get(), stock: bien.stock }, // Usa get para convertir a JSON
     });
   } catch (error) {
-    await transaction.rollback();
+    await transaction.rollback(); // Hacer rollback en caso de error
     console.error("Error al registrar la venta:", error);
     res.status(500).json({
       mensaje: "Error al registrar la transacción",
