@@ -16,12 +16,7 @@ const PORT = process.env.PORT || 5005;
 // Configuración de CORS
 const corsOptions = {
   origin: [
-<<<<<<< HEAD
     'http://localhost:3000',
-=======
-    'https://bienesmueblesfront.vercel.app',
-    'http://localhost:3000'
->>>>>>> develop
   ],
   methods: ['GET', 'POST', 'PUT', 'DELETE'],
   allowedHeaders: ['Content-Type', 'Authorization'],
@@ -45,16 +40,12 @@ app.use((req, res, next) => {
     secure: process.env.NODE_ENV === 'production',
     sameSite: 'None',
   });
-<<<<<<< HEAD
 
   if (req.headers['content-type'] && req.headers['content-type'].includes('multipart/form-data')) {
     upload.any()(req, res, next);
   } else {
     next();
   }
-=======
-  next();
->>>>>>> develop
 });
 
 // Servir la carpeta 'uploads' públicamente
