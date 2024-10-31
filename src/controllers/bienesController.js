@@ -310,8 +310,8 @@ const registrarTransaccion = async (req, res) => {
       monto: precio * cantidad,
       metodoPago,
       fecha: new Date(),
-      estado: 'pendiente',
-      // Asegúrate de que este campo exista en tu modelo Transaccion
+    
+
       tipoTransaccion: req.body.tipoTransaccion || 'Venta', // Usa 'Venta' por defecto
     }, { transaction });
 
@@ -604,7 +604,6 @@ const registrarVenta = async (req, res) => {
       monto: precio * cantidad,
       metodoPago,
       fecha: new Date(),
-      estado: 'pendiente',
       tipoTransaccion: 'Venta',
     }, { transaction });
 
