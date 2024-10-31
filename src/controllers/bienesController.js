@@ -804,7 +804,6 @@ const registrarCompra = async (req, res) => {
 
 
 
-
 // Actualizar stock de bienes
 const actualizarStockBienes = async (compra) => {
   const { vendedorId, compradorId, bienId, cantidad } = compra;

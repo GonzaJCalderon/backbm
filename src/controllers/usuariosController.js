@@ -107,7 +107,7 @@ const loginUsuario = async (req, res) => {
       rolTemporal: user.rolTemporal,
       rolDefinitivo: user.rolDefinitivo,
       tipo: user.tipo,
-      cuit: user.cuit, 
+      cuit: user.cuit,
       dni: user.dni,
     };
 
@@ -250,12 +250,12 @@ const obtenerUsuariosPendientes = async (req, res) => {
   try {
     // Consulta para obtener usuarios con estado 'pendiente'
     const usuariosPendientes = await Usuario.findAll({ where: { estado: 'pendiente' } });
-    
+
     // Verifica si hay usuarios pendientes
     if (usuariosPendientes.length === 0) {
       return res.status(404).json({ message: 'No hay usuarios pendientes' });
     }
-    
+
     // Devuelve los usuarios pendientes
     res.json(usuariosPendientes);
   } catch (error) {
@@ -573,26 +573,26 @@ const obtenerRolTemporal = async (req, res) => {
 
 const removerRolTemporal = async (req, res) => {
   try {
-      const userId = req.params.id;
+    const userId = req.params.id;
 
-      // Buscar el usuario por su ID
-      const usuario = await Usuario.findByPk(userId);
+    // Buscar el usuario por su ID
+    const usuario = await Usuario.findByPk(userId);
 
-      if (!usuario) {
-          return res.status(404).json({ message: 'Usuario no encontrado' });
-      }
+    if (!usuario) {
+      return res.status(404).json({ message: 'Usuario no encontrado' });
+    }
 
-      // Remover el rol temporal del usuario
-      usuario.rolTemporal = null;
+    // Remover el rol temporal del usuario
+    usuario.rolTemporal = null;
 
-      // Guardar los cambios en la base de datos
-      await usuario.save();
+    // Guardar los cambios en la base de datos
+    await usuario.save();
 
-      // Responder con un mensaje de éxito
-      res.status(200).json({ message: 'Rol temporal removido', usuario });
+    // Responder con un mensaje de éxito
+    res.status(200).json({ message: 'Rol temporal removido', usuario });
   } catch (error) {
-      console.error('Error al remover el rol temporal:', error);
-      res.status(500).json({ message: 'Error al remover el rol temporal', error });
+    console.error('Error al remover el rol temporal:', error);
+    res.status(500).json({ message: 'Error al remover el rol temporal', error });
   }
 };
 

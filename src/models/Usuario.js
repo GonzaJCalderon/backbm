@@ -1,5 +1,10 @@
+<<<<<<< HEAD
 const sequelize = require('../config/db');
 const { DataTypes } = require('sequelize');
+=======
+const { DataTypes } = require('sequelize');
+const sequelize = require('../config/db');
+>>>>>>> develop
 
 const Usuario = sequelize.define('Usuario', {
   nombre: {
@@ -30,7 +35,11 @@ const Usuario = sequelize.define('Usuario', {
     allowNull: false,
   },
   direccion: {
+<<<<<<< HEAD
     type: DataTypes.JSON, 
+=======
+    type: DataTypes.JSON,
+>>>>>>> develop
     allowNull: false,
     defaultValue: {}
   },
@@ -39,7 +48,11 @@ const Usuario = sequelize.define('Usuario', {
     allowNull: true,
   },
   rolDefinitivo: {
+<<<<<<< HEAD
     type: DataTypes.STRING,
+=======
+    type: DataTypes.ENUM('usuario', 'administrador'),
+>>>>>>> develop
     allowNull: true,
     defaultValue: 'usuario',
   },
@@ -52,7 +65,11 @@ const Usuario = sequelize.define('Usuario', {
     type: DataTypes.ENUM('pendiente', 'aprobado', 'rechazado'),
     defaultValue: 'pendiente',
   },
+<<<<<<< HEAD
   motivoRechazo: { 
+=======
+  motivoRechazo: {
+>>>>>>> develop
     type: DataTypes.STRING,
     allowNull: true,
   },

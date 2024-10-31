@@ -1,4 +1,4 @@
-require('dotenv').config(); 
+require('dotenv').config();
 const jwt = require('jsonwebtoken');
 
 // Obtén la clave secreta desde las variables de entorno
