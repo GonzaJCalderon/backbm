@@ -11,13 +11,12 @@ const upload = require('./src/config/multerConfig'); // Asegúrate de que esta r
 const { Usuario, Bien, Transaccion } = require('./src/models');
 
 const app = express();
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 5005;
 
 // Configuración de CORS
 const corsOptions = {
   origin: [
-    'https://bienesmueblesfront.vercel.app', 
-    'http://localhost:3000'  
+    'http://localhost:3000'
   ],
   methods: ['GET', 'POST', 'PUT', 'DELETE'],
   allowedHeaders: ['Content-Type', 'Authorization'],
