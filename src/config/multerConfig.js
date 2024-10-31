@@ -19,14 +19,17 @@ const upload = multer({
   },
   fileFilter: (req, file, cb) => {
     // Aceptar solo ciertos tipos de archivos
-    const filetypes = /jpeg|jpg|png|gif/; // Cambia esto según tus necesidades
-    const mimetype = filetypes.test(file.mimetype);
-    const extname = filetypes.test(path.extname(file.originalname).toLowerCase());
-
-    if (mimetype && extname) {
+    console.log('Archivo recibido:', file);
+    console.log('Mimetype:', file.mimetype);
+    console.log('Nombre original:', file.originalname);
+    const extension = path.extname(file.originalname).toLowerCase();
+    const allowedMimetypes = ['.jpg', '.jpeg', '.png', '.gif'];
+    if (allowedMimetypes.includes(extension)) {
       return cb(null, true);
     } else {
-      cb(new Error('Error: Solo se permiten imágenes (JPEG, PNG, GIF)'));
+      cb(new Error(`Tipo de archivo no permitido. 
+        Solo se aceptan: ${allowedMimetypes.join(', ')}
+        Recibido: ${file.mimetype}`), false);
     }
   }
 });
