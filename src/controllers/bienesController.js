@@ -705,7 +705,6 @@ const registrarCompra = async (req, res) => {
       monto: precio * cantidad,
       metodoPago,
       fecha: new Date(),
-      estado: 'pendiente',
       tipoTransaccion: 'Compra',
     }, { transaction });
 
