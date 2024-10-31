@@ -16,10 +16,6 @@ const Transaccion = sequelize.define('Transaccion', {
     type: DataTypes.INTEGER,
     allowNull: false
   },
-  estado: {
-    type: DataTypes.STRING,
-    allowNull: false
-  },
   compradorId: {
     type: DataTypes.INTEGER,
     allowNull: false,
@@ -41,7 +37,7 @@ const Transaccion = sequelize.define('Transaccion', {
     onUpdate: 'CASCADE',
   },
   bienId: {
-    type: DataTypes.UUID, // Asegúrate de que este sea UUID
+    type: DataTypes.UUID,
     allowNull: false,
     references: {
       model: Bien,
@@ -56,6 +52,7 @@ const Transaccion = sequelize.define('Transaccion', {
     allowNull: false,
     unique: true
   },
+
   metodoPago: {
     type: DataTypes.STRING,
     allowNull: false
