@@ -369,7 +369,6 @@ const obtenerCompradores = async (req, res) => {
 };
 
 // Actualizar usuario
-// Modificación del controlador
 const actualizarUsuario = async (req, res) => {
   const { id } = req.params;
   const { nombre, apellido, email, direccion, password, rolDefinitivo } = req.body;
@@ -380,49 +379,25 @@ const actualizarUsuario = async (req, res) => {
           return res.status(404).json({ message: 'Usuario no encontrado' });
       }
 
-      // Validaciones de datos
-      if (nombre) {
-          usuario.nombre = nombre;
-      }
-      if (apellido) {
-          usuario.apellido = apellido;
-      }
-      if (email) {
-          // Validar el formato del email
-          const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-          if (!emailRegex.test(email)) {
-              return res.status(400).json({ message: 'El email no es válido' });
-          }
-          usuario.email = email;
+      // Asegurarse de que `direccion` se trate como objeto
+      usuario.direccion = typeof usuario.direccion === 'string' ? JSON.parse(usuario.direccion) : usuario.direccion;
+
+      // Asignar nuevos valores
+      if (nombre) usuario.nombre = nombre;
+      if (apellido) usuario.apellido = apellido;
+      if (email) usuario.email = email;
+
+      // Sobrescribir `direccion` solo si es un objeto
+      if (direccion && typeof direccion === 'object') {
+          usuario.direccion = direccion;
       }
 
-      // Actualizar dirección si se proporciona
-      if (direccion) {
-          // Aquí puedes agregar más validaciones para los campos de dirección si es necesario
-          usuario.direccion = {
-              ...usuario.direccion, // Mantener campos existentes
-              ...direccion // Actualizar solo los que se proporcionan
-          };
-      }
-
-      // Actualizar rol
-      if (rolDefinitivo) {
-          usuario.rolDefinitivo = rolDefinitivo; // Forzar cambio de rol
-          console.log("Actualizando rol a:", rolDefinitivo);
-      }
-
-      // Actualizar contraseña si se proporciona
-      if (password) {
-          usuario.password = await bcrypt.hash(password, 10);
-      }
-
-      // Guardar los cambios
+      // Guardar cambios
       await usuario.save();
 
-      res.json({ message: 'Usuario actualizado correctamente', usuario });
+      return res.status(200).json({ message: 'Usuario actualizado exitosamente', data: usuario });
   } catch (error) {
-      console.error('Error al actualizar el usuario:', error);
-      res.status(500).json({ message: 'Error al actualizar usuario', error });
+      return res.status(500).json({ message: 'Error al actualizar el usuario', error: error.message });
   }
 };
 
