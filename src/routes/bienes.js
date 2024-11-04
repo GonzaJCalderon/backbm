@@ -3,7 +3,9 @@ const router = express.Router();
 const { Bien, Transaccion, Usuario } = require('../models');  // Importa los modelos
 const bienesController = require('../controllers/bienesController');
 const { verifyToken, verificarPermisos } = require('../middlewares/authMiddleware'); // Asegúrate de que estén importados correctamente
-const upload = require('../config/multerConfig');  // Configuración para multer
+const multer = require('multer');
+
+const upload = multer({ dest: 'uploads/' });
 
 // Ruta para obtener todos los bienes
 router.get('/', bienesController.obtenerBienes);
@@ -12,7 +14,7 @@ router.get('/', bienesController.obtenerBienes);
 router.post('/add/', 
   upload.fields([{ name: 'fotos', maxCount: 3 }]), 
   verifyToken, // Verifica que el usuario esté autenticado
-  verificarPermisos(['admin']), // Verifica que el rol sea admin
+  verificarPermisos(['administrador']), // Verifica que el rol sea admin
   async (req, res) => {
     try {
       await bienesController.crearBien(req, res);
@@ -34,7 +36,8 @@ router.put('/:id', verifyToken, verificarPermisos(['administrador']), bienesCont
 router.delete('/:id', verifyToken, verificarPermisos(['administrador']), bienesController.eliminarBien);
 
 // Ruta para subir y procesar el archivo Excel
-router.post('/subir-stock', upload.single('archivoExcel'), verificarPermisos(['administrador']), bienesController.subirStockExcel);
+router.post('/subir-stock', upload.single('archivoExcel'), bienesController.subirStockExcel);
+
 
 // Ruta para obtener transacciones por ID de bien
 router.get('/transacciones/bien/:id', bienesController.obtenerTransaccionesPorBien);

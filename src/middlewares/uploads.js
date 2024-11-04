@@ -3,6 +3,8 @@ const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
 
+
+
 // Configuración de almacenamiento
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
@@ -32,15 +34,23 @@ const storage = multer.diskStorage({
   },
 });
 
-// Restricciones de tipo de archivo y tamaño
+// Actualización del filtro de archivos para aceptar imágenes y archivos de Excel
 const fileFilter = (req, file, cb) => {
-  const allowedTypes = ["image/jpeg", "image/jpg", "image/png"];
+  const allowedTypes = [
+    "image/jpeg",
+    "image/jpg",
+    "image/png",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", // .xlsx
+    "application/vnd.ms-excel" // .xls
+  ];
+
   if (!allowedTypes.includes(file.mimetype)) {
-    return cb(new Error("Solo se permiten archivos JPG, JPEG o PNG."), false);
+    return cb(new Error("Solo se permiten archivos JPG, JPEG, PNG, XLSX o XLS."), false);
   }
   cb(null, true);
 };
 
+// Configuración de multer con el almacenamiento y filtro actualizados
 const upload = multer({
   storage,
   fileFilter,

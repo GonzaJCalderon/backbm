@@ -11,6 +11,7 @@ const { v4: isUUID } = require('uuid');
 const { validate: validateUUID } = require('uuid');
 
 
+
 const isValidUUID = (id) => {
   return validateUUID(id);
 };
@@ -334,54 +335,41 @@ const registrarTransaccion = async (req, res) => {
 
 
 // Subir stock desde un archivo Excel
-const subirStockExcel = async (req, res) => {
-  try {
-    const filePath = req.file.path;
-    const result = excelToJson({
-      sourceFile: filePath,
-      header: {
-        rows: 1
-      },
-      columnToKey: {
-        A: 'descripcion',
-        B: 'precio',
-        C: 'vendedorId', // Usa vendedorId en lugar de usuarioId
-        D: 'fecha',
-        E: 'tipo',
-        F: 'marca',
-        G: 'modelo',
-        H: 'imei',
-        I: 'stock'
-      }
-    });
-    fs.unlinkSync(filePath);
+// Subir stock desde un archivo Excel
+async function subirStockExcel(data) {
+  for (const item of data.Sheet1) {
+    const { descripcion, precio, vendedorId, fecha, tipo, marca, modelo, imei, stock, imagen } = item;
 
-    const bienes = result.Stock;
+    // Verifica si la imagen existe y copia el archivo al servidor
+    if (imagen) {
+      const sourcePath = path.join(__dirname, 'uploads', imagen); // ruta donde están las imágenes originales
+      const destPath = path.join(__dirname, 'public', 'images', imagen); // ruta donde quieres almacenar las imágenes
 
-    for (const bienData of bienes) {
-      try {
-        await Bien.upsert({
-          descripcion: bienData.descripcion,
-          precio: bienData.precio,
-          vendedorId: bienData.vendedorId,
-          fecha: new Date(bienData.fecha),
-          tipo: bienData.tipo,
-          marca: bienData.marca,
-          modelo: bienData.modelo,
-          imei: bienData.imei || null,
-          stock: bienData.stock || 0
-        });
-      } catch (error) {
-        console.error('Error al procesar el bien:', bienData, error);
-      }
+      // Copiar la imagen al destino
+      fs.copyFile(sourcePath, destPath, (err) => {
+        if (err) throw err;
+      });
     }
 
-    res.status(200).json({ message: 'Stock actualizado desde Excel' });
-  } catch (error) {
-    console.error('Error al subir stock desde Excel:', error);
-    res.status(500).json({ message: 'Error al subir stock desde Excel', error: error.message });
+    // Almacenar en la base de datos, asegurándote de incluir la ruta de la imagen
+    try {
+      await Bien.upsert({
+        descripcion,
+        precio,
+        vendedorId,
+        fecha,
+        tipo,
+        marca,
+        modelo,
+        imei,
+        stock,
+        imagen: `images/${imagen}` // almacena la ruta de la imagen
+      });
+    } catch (error) {
+      console.error('Error al procesar el bien:', error);
+    }
   }
-};
+}
 
 
 // Obtener transacciones por bien
