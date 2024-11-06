@@ -10,7 +10,7 @@ const nodemailer = require('nodemailer');
 require('dotenv').config(); // Esto carga las variables del archivo .env
 
 
-const SECRET_KEY = process.env.SECRET_KEY || 'bienes_muebles'; // Clave secreta para JWT
+const secretKey = process.env.SECRET_KEY;
 
 // Crear un nuevo usuario
 
@@ -74,6 +74,7 @@ const crearUsuario = async (req, res) => {
 
 
 // Iniciar sesión
+// Iniciar sesión
 const loginUsuario = async (req, res) => {
   const { email, password } = req.body;
 
@@ -110,11 +111,15 @@ const loginUsuario = async (req, res) => {
       dni: user.dni,
     };
 
-    // Generar el token JWT
+    // Generar el token JWT incluyendo rolDefinitivo
     const token = jwt.sign(
-      { id: user.id, email: user.email },
-      SECRET_KEY,
-      { expiresIn: '24h' }
+      {
+        id: user.id,
+        email: user.email,
+        rolDefinitivo: user.rolDefinitivo, // Asegúrate de incluir rolDefinitivo aquí
+      },
+      process.env.SECRET_KEY,
+      { expiresIn: '1h' }
     );
 
     // Enviar la respuesta
@@ -124,6 +129,7 @@ const loginUsuario = async (req, res) => {
     res.status(500).json({ message: 'Error en la autenticación', error });
   }
 };
+
 
 
 // Obtener todos los usuarios
@@ -363,39 +369,41 @@ const obtenerCompradores = async (req, res) => {
 };
 
 // Actualizar usuario
-// Actualizar usuario
+// Modificación del controlador
 const actualizarUsuario = async (req, res) => {
-  const { id } = req.params; // Obtener el ID del usuario de los parámetros de la solicitud
-  const { nombre, apellido, email, direccion, password } = req.body; // Desestructurar los datos del cuerpo de la solicitud
+  const { id } = req.params;
+  const { nombre, apellido, email, direccion, password, rolDefinitivo } = req.body;
 
   try {
-    // Buscar el usuario en la base de datos por su ID
     const usuario = await Usuario.findByPk(id);
     if (!usuario) {
-      return res.status(404).json({ message: 'Usuario no encontrado' }); // Retornar 404 si el usuario no existe
+      return res.status(404).json({ message: 'Usuario no encontrado' });
     }
 
-    // Actualizar los campos solo si se proporcionan
     if (nombre) usuario.nombre = nombre;
     if (apellido) usuario.apellido = apellido;
     if (email) usuario.email = email;
     if (direccion) usuario.direccion = direccion;
 
-    // Si se proporciona una nueva contraseña, hashearla antes de guardar
+    if (rolDefinitivo) {
+      usuario.rolDefinitivo = rolDefinitivo;  // Forzar cambio de rol
+      console.log("Actualizando rol a:", rolDefinitivo);  // Log para verificar
+    }
+
     if (password) {
       usuario.password = await bcrypt.hash(password, 10);
     }
 
-    // Guardar los cambios en la base de datos
     await usuario.save();
 
-    // Responder con un mensaje de éxito y el usuario actualizado
     res.json({ message: 'Usuario actualizado correctamente', usuario });
   } catch (error) {
-    console.error('Error al actualizar el usuario:', error); // Log de error para depuración
-    res.status(500).json({ message: 'Error al actualizar usuario', error }); // Retornar 500 en caso de error
+    console.error('Error al actualizar el usuario:', error);
+    res.status(500).json({ message: 'Error al actualizar usuario', error });
   }
 };
+
+
 
 
 // Eliminar usuario
@@ -467,12 +475,12 @@ const obtenerUsuarioDetalles = async (req, res) => {
         {
           model: Bien,
           as: 'bienesComprados',
-          attributes: ['id', 'descripcion', 'precio', 'fecha']
+          attributes: ['uuid', 'descripcion', 'precio', 'fecha'] // Cambié 'id' por 'uuid'
         },
         {
           model: Bien,
           as: 'bienesVendidos',
-          attributes: ['id', 'descripcion', 'precio', 'fecha']
+          attributes: ['uuid', 'descripcion', 'precio', 'fecha'] // Cambié 'id' por 'uuid'
         }
       ]
     });
@@ -483,9 +491,12 @@ const obtenerUsuarioDetalles = async (req, res) => {
 
     res.json(usuario);
   } catch (error) {
-    res.status(500).json({ message: 'Error al obtener detalles del usuario', error });
+    console.error('Error al obtener detalles del usuario:', error);
+    res.status(500).json({ message: 'Error al obtener detalles del usuario', error: error.message });
   }
 };
+
+
 
 // Obtener todas las compras y ventas por usuario
 const obtenerComprasVentas = async (req, res) => {

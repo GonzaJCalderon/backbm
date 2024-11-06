@@ -30,7 +30,6 @@ const Bien = sequelize.define('Bien', {
   },
   descripcion: {
     type: DataTypes.STRING,
-    allowNull: false,
   },
   precio: {
     type: DataTypes.FLOAT,
@@ -42,7 +41,6 @@ const Bien = sequelize.define('Bien', {
   },
   foto: {
     type: DataTypes.JSON,
-    allowNull: true,
   },
   tipo: {
     type: DataTypes.STRING,

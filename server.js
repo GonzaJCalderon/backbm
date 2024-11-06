@@ -11,13 +11,12 @@ const upload = require('./src/config/multerConfig'); // Asegúrate de que esta r
 const { Usuario, Bien, Transaccion } = require('./src/models');
 
 const app = express();
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 5005;
 
 // Configuración de CORS
 const corsOptions = {
   origin: [
-    'https://bienesmueblesfront.vercel.app',
-    'http://localhost:3000'
+    'http://localhost:3000',
   ],
   methods: ['GET', 'POST', 'PUT', 'DELETE'],
   allowedHeaders: ['Content-Type', 'Authorization'],
@@ -41,7 +40,12 @@ app.use((req, res, next) => {
     secure: process.env.NODE_ENV === 'production',
     sameSite: 'None',
   });
-  next();
+
+  if (req.headers['content-type'] && req.headers['content-type'].includes('multipart/form-data')) {
+    upload.any()(req, res, next);
+  } else {
+    next();
+  }
 });
 
 // Servir la carpeta 'uploads' públicamente
@@ -71,13 +75,13 @@ sequelize.authenticate()
   });
 
 // Sincronizar la base de datos
-sequelize.sync({ alter: true })
-  .then(() => {
-    console.log('Base de datos sincronizada');
-  })
-  .catch(error => {
-    console.error('Error al sincronizar la base de datos:', error);
-  });
+// sequelize.sync({ alter: true })
+//   .then(() => {
+//     console.log('Base de datos sincronizada');
+//   })
+//   .catch(error => {
+//     console.error('Error al sincronizar la base de datos:', error);
+//   });
 
 // Iniciar el servidor
 app.listen(PORT, () => {
