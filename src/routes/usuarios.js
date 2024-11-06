@@ -69,5 +69,8 @@ router.get('/usuarios/rechazados', verifyToken, verificarPermisos(['administrado
 // Ruta para cambiar el rol del usuario a 'administrador' (protegida y accesible solo para administrador)
 router.put('/:id/cambiar-rol', verifyToken, verificarPermisos(['administrador']), usuarioController.cambiarRol);
 
+// Ruta para verificar si el usuario existe
+router.post('/check', usuarioController.verificarUsuarioExistente);
+
 module.exports = router;
  

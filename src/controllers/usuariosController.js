@@ -271,11 +271,11 @@ const obtenerUsuariosPendientes = async (req, res) => {
 
 // Registrar usuario por tercero
 const registerUsuarioPorTercero = async (req, res) => {
-  const { dniCuit, firstName, lastName, email, address } = req.body;
+  const { dniCuit, firstName, lastName, email, calle, numero, ciudad } = req.body;
   console.log("Datos recibidos en el backend:", req.body); // Agrega este log para debug
 
   // Validación de los campos requeridos
-  if (!dniCuit || !firstName || !lastName || !email || !address) {
+  if (!dniCuit || !firstName || !lastName || !email || !calle || !numero || !ciudad) {
     return res.status(400).json({ message: 'Todos los campos son obligatorios' });
   }
 
@@ -289,7 +289,7 @@ const registerUsuarioPorTercero = async (req, res) => {
         usuario.nombre === firstName &&
         usuario.apellido === lastName &&
         usuario.email === email &&
-        usuario.direccion === address
+        JSON.stringify(usuario.direccion) === JSON.stringify({ calle, numero, ciudad })
       ) {
         // Si los datos coinciden, devuelve el usuario existente
         return res.json({ usuario });
@@ -306,7 +306,7 @@ const registerUsuarioPorTercero = async (req, res) => {
         nombre: firstName,
         apellido: lastName,
         email,
-        direccion: address,
+        direccion: { calle, numero, ciudad }, // Dirección como objeto JSON
         password: 'default_password', // Asigna la contraseña por defecto
         rolDefinitivo: 'usuario'
       });
@@ -319,6 +319,7 @@ const registerUsuarioPorTercero = async (req, res) => {
     res.status(500).json({ message: 'Error al registrar usuario por tercero', error });
   }
 };
+
 
 
 
@@ -705,6 +706,39 @@ const obtenerUsuariosRechazados = async (req, res) => {
   }
 };
 
+// Función para verificar si el usuario existe
+const verificarUsuarioExistente = async (req, res) => {
+  try {
+    // Obtener los datos del body
+    const { nombre, apellido, dni, cuit } = req.body;
+
+    // Construir la consulta dinámica
+    const condiciones = [];
+
+    if (nombre) condiciones.push({ nombre: nombre });
+    if (apellido) condiciones.push({ apellido: apellido });
+    if (dni) condiciones.push({ dni: dni });
+    if (cuit) condiciones.push({ cuit: cuit });
+
+    // Realizar la búsqueda en la base de datos
+    const usuarioExistente = await Usuario.findOne({
+      where: {
+        [Op.or]: condiciones // Usamos Op.or para combinar las condiciones de manera OR
+      }
+    });
+
+    if (usuarioExistente) {
+      // Si se encuentra el usuario
+      return res.status(200).json({ existe: true, usuario: usuarioExistente });
+    } else {
+      // Si no se encuentra el usuario
+      return res.status(404).json({ existe: false, mensaje: 'Usuario no encontrado' });
+    }
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ mensaje: 'Error en el servidor' });
+  }
+};
 
 
 
@@ -735,4 +769,5 @@ module.exports = {
   removerRolTemporal,
   cambiarRol,
   obtenerUsuariosRechazados,
+  verificarUsuarioExistente,
 };

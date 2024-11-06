@@ -617,6 +617,8 @@ const registrarVenta = async (req, res) => {
 
 
 const registrarCompra = async (req, res) => {
+  console.log("Datos de la solicitud:", req.body);
+  console.log("Archivos recibidos:", req.files);
   const {
     bienId,
     compradorId,

@@ -11,10 +11,11 @@ const upload = multer({ dest: 'uploads/' });
 router.get('/', bienesController.obtenerBienes);
 
 // Ruta para crear un nuevo bien
+// Ruta para crear un nuevo bien
 router.post('/add/', 
   upload.fields([{ name: 'fotos', maxCount: 3 }]), 
-  verifyToken, // Verifica que el usuario esté autenticado
-  verificarPermisos(['administrador']), // Verifica que el rol sea admin
+  verifyToken, 
+  verificarPermisos(['administrador', 'vendedor', 'usuario']), // Agrega 'usuario' aquí
   async (req, res) => {
     try {
       await bienesController.crearBien(req, res);
@@ -22,6 +23,8 @@ router.post('/add/',
       res.status(500).send({ error: 'Error en el controlador: ' + error.message });
     }
 });
+
+
 
 // Ruta para obtener un bien por su ID
 router.get('/:id', bienesController.obtenerBienPorId);
@@ -74,5 +77,6 @@ router.get('/stock', bienesController.obtenerBienesStock);
 
 // Ruta para registrar una venta
 router.post('/vender', verifyToken, bienesController.registrarVenta);
+
 
 module.exports = router;
