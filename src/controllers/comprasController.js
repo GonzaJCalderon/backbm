@@ -3,7 +3,6 @@ const Transaccion = require('../models/Transaccion');
 const { Sequelize } = require('sequelize');
 const sequelize = require('../config/db');
 
-
 const crearBien = async (req) => {
   console.log('req:::::', req);
 
@@ -155,4 +154,3 @@ const registrarCompra = async (req) => {
 };
 
 module.exports = { registrarCompra };
-
