@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { Bien, Transaccion, Usuario } = require('../models');  // Importa los modelos
 const bienesController = require('../controllers/bienesController');
+const comprasController = require('../controllers/comprasController');
 const { verifyToken, verificarPermisos } = require('../middlewares/authMiddleware'); // Asegúrate de que estén importados correctamente
 const multer = require('multer');
 
@@ -12,19 +13,17 @@ router.get('/', bienesController.obtenerBienes);
 
 // Ruta para crear un nuevo bien
 // Ruta para crear un nuevo bien
-router.post('/add/', 
-  upload.fields([{ name: 'fotos', maxCount: 3 }]), 
-  verifyToken, 
-  verificarPermisos(['administrador', 'vendedor', 'usuario']), // Agrega 'usuario' aquí
+router.post('/add/',
+  upload.fields([{ name: 'fotos', maxCount: 3 }]),
+  verifyToken, // Verifica que el usuario esté autenticado
+  verificarPermisos(['admin']), // Verifica que el rol sea admin
   async (req, res) => {
     try {
       await bienesController.crearBien(req, res);
     } catch (error) {
       res.status(500).send({ error: 'Error en el controlador: ' + error.message });
     }
-});
-
-
+  });
 
 // Ruta para obtener un bien por su ID
 router.get('/:id', bienesController.obtenerBienPorId);
@@ -55,7 +54,11 @@ router.get('/transacciones/usuario/:userId', bienesController.obtenerTransaccion
 router.get('/usuario/:userId/stock', verifyToken, bienesController.obtenerBienesDisponibles);
 
 // Ruta para comprar un bien
-router.post('/comprar', verifyToken, async (req, res) => {
+router.post('/comprar', async (req, res) => {
+  console.log('Cuerpo de la solicitud:', req.body);
+
+  // Imprime los keys del body
+  console.log('Keys en el body:', Object.keys(req.body));
   const { bienId } = req.body;
 
   try {
@@ -69,6 +72,18 @@ router.post('/comprar', verifyToken, async (req, res) => {
     await bienesController.registrarCompra(req, res);
   } catch (error) {
     res.status(500).send({ error: 'Error al verificar el bien: ' + error.message });
+  }
+});
+
+router.post('/comprar_bien', async (req, res) => {
+  // Pasar el ID del bien a `req.body` y registrar la compra
+
+  try {
+    const compra = await comprasController.registrarCompra(req, res);
+    return res.status(201).json(compra);
+  } catch (error) {
+    console.error('Error en /comprar_bien:', error);
+    return res.status(500).send({ error: 'Error al procesar la compra' });
   }
 });
 

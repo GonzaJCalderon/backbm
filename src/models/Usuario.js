@@ -30,7 +30,7 @@ const Usuario = sequelize.define('Usuario', {
     allowNull: false,
   },
   direccion: {
-    type: DataTypes.JSON, 
+    type: DataTypes.JSON,
     allowNull: false,
     defaultValue: {}
   },
@@ -52,7 +52,7 @@ const Usuario = sequelize.define('Usuario', {
     type: DataTypes.ENUM('pendiente', 'aprobado', 'rechazado'),
     defaultValue: 'pendiente',
   },
-  motivoRechazo: { 
+  motivoRechazo: {
     type: DataTypes.STRING,
     allowNull: true,
   },
