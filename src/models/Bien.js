@@ -30,7 +30,6 @@ const Bien = sequelize.define('Bien', {
   },
   descripcion: {
     type: DataTypes.STRING,
-    allowNull: false,
   },
   precio: {
     type: DataTypes.FLOAT,

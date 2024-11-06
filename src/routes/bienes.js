@@ -72,28 +72,11 @@ router.post('/comprar', async (req, res) => {
 });
 
 router.post('/comprar_bien', async (req, res) => {
-  const { bienId } = req.body;
+  // Pasar el ID del bien a `req.body` y registrar la compra
 
   try {
-    let idBien = bienId;
-
-    if (!bienId) {
-      // Crear nuevo bien y obtener bienId
-      const nuevoBien = await bienesController.crearBien(req);
-
-      if (!nuevoBien || !nuevoBien.uuid) {
-        return res.status(500).send({ error: 'Error al crear el bien' });
-      }
-
-      idBien = nuevoBien.uuid;
-    }
-
-    // Pasar el ID del bien a `req.body` y registrar la compra
-    req.body.bienId = idBien;
     const compra = await comprasController.registrarCompra(req, res);
-
     return res.status(201).json(compra);
-
   } catch (error) {
     console.error('Error en /comprar_bien:', error);
     return res.status(500).send({ error: 'Error al procesar la compra' });

@@ -10,7 +10,7 @@ router.post('/register', usuarioController.crearUsuario);
 router.post('/login', usuarioController.loginUsuario);
 
 // Ruta para obtener todos los usuarios (protegida y solo accesible para administrador o moderador)
-router.get('/', verifyToken, verificarPermisos(['administrador', 'moderador', ]), usuarioController.obtenerUsuarios);
+router.get('/', verifyToken, verificarPermisos(['administrador', 'moderador',]), usuarioController.obtenerUsuarios);
 
 // Ruta para obtener un usuario por DNI (protegida y accesible solo para administrador)
 router.get('/dni', verifyToken, verificarPermisos(['administrador', 'moderador']), usuarioController.obtenerUsuarioPorDni);
@@ -70,4 +70,4 @@ router.get('/usuarios/rechazados', verifyToken, verificarPermisos(['administrado
 router.put('/:id/cambiar-rol', verifyToken, verificarPermisos(['administrador']), usuarioController.cambiarRol);
 
 module.exports = router;
- 
+

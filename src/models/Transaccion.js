@@ -16,10 +16,6 @@ const Transaccion = sequelize.define('Transaccion', {
     type: DataTypes.INTEGER,
     allowNull: false
   },
-  estado: {
-    type: DataTypes.STRING,
-    allowNull: false
-  },
   compradorId: {
     type: DataTypes.INTEGER,
     allowNull: false,

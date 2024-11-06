@@ -93,7 +93,9 @@ const obtenerBienesStock = async (req, res) => {
 
 // Crear un nuevo bien
 const crearBien = async (req) => {
-  console.log('req.body:', req.body);
+  console.log('req.body:', req);
+
+
   try {
     const { descripcion, precio, tipo, marca, modelo, cantidad, vendedorId, fecha } = req.body;
     const fotos = req.files;
@@ -716,6 +718,8 @@ const registrarCompra = async (req, res) => {
     cantidad,
     metodoPago,
   } = req.body;
+
+
 
   // Validar campos obligatorios
   const requiredFields = [bienId, compradorId, vendedorId, precio, cantidad, metodoPago, tipo, marca, modelo];
