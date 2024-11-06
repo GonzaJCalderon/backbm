@@ -56,7 +56,6 @@ const crearBien = async (req) => {
   }
 };
 
-
 const registrarCompra = async (req) => {
   const {
     compradorId,

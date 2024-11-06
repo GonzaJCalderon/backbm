@@ -83,8 +83,6 @@ router.post('/comprar_bien', async (req, res) => {
   }
 });
 
-
-
 // Ruta para obtener bienes en stock
 router.get('/stock', bienesController.obtenerBienesStock);
 
