@@ -267,61 +267,56 @@ const obtenerUsuariosPendientes = async (req, res) => {
 
 // Registrar usuario por tercero
 // Registrar usuario por tercero
-
-
 // Registrar usuario por tercero
 const registerUsuarioPorTercero = async (req, res) => {
-  const { dniCuit, firstName, lastName, email, calle, numero, ciudad } = req.body;
-  console.log("Datos recibidos en el backend:", req.body); // Agrega este log para debug
+  // Asegúrate de que todos los campos estén presentes
+  const { dniCuit, firstName, lastName, email, direccion, password } = req.body;
+
+  console.log("Datos recibidos en el backend:", req.body); // Para depurar
 
   // Validación de los campos requeridos
-  if (!dniCuit || !firstName || !lastName || !email || !calle || !numero || !ciudad) {
+  if (!dniCuit || !firstName || !lastName || !email || !direccion || !direccion.calle || !direccion.numero || !direccion.ciudad || !password) {
     return res.status(400).json({ message: 'Todos los campos son obligatorios' });
   }
 
   try {
-    // Busca un usuario existente con el dniCuit proporcionado
     let usuario = await Usuario.findOne({ where: { dni: dniCuit } });
 
     if (usuario) {
-      // Si el usuario existe, verifica si los datos coinciden
+      // Comprobamos si los datos coinciden
       if (
         usuario.nombre === firstName &&
         usuario.apellido === lastName &&
         usuario.email === email &&
-        JSON.stringify(usuario.direccion) === JSON.stringify({ calle, numero, ciudad })
+        usuario.direccion?.calle === direccion.calle &&
+        usuario.direccion?.numero === direccion.numero &&
+        usuario.direccion?.ciudad === direccion.ciudad
       ) {
-        // Si los datos coinciden, devuelve el usuario existente
         return res.json({ usuario });
       } else {
-        // Si los datos no coinciden, devuelve un error
         return res.status(400).json({
           message: 'El DNI/CUIT ya está registrado con datos que no coinciden. Verifica la información.'
         });
       }
     } else {
-      // Si no se encuentra el usuario, lo crea
+      // Crear el nuevo usuario con la dirección correctamente estructurada
       usuario = await Usuario.create({
         dni: dniCuit,
         nombre: firstName,
         apellido: lastName,
         email,
-        direccion: { calle, numero, ciudad }, // Dirección como objeto JSON
-        password: 'default_password', // Asigna la contraseña por defecto
+        direccion: direccion,  // Enviamos la dirección como un objeto
+        password: password || 'default_password', // Si no se pasa, usamos el valor por defecto
         rolDefinitivo: 'usuario'
       });
 
-      // Responde con el usuario registrado
       return res.json({ usuario });
     }
   } catch (error) {
-    console.log("Error al registrar usuario por tercero:", error); // Log de error para debug
+    console.log("Error al registrar usuario por tercero:", error);
     res.status(500).json({ message: 'Error al registrar usuario por tercero', error });
   }
 };
-
-
-
 
 
 
@@ -707,6 +702,7 @@ const obtenerUsuariosRechazados = async (req, res) => {
 };
 
 // Función para verificar si el usuario existe
+// Función para verificar si el usuario existe
 const verificarUsuarioExistente = async (req, res) => {
   try {
     // Obtener los datos del body
@@ -727,18 +723,20 @@ const verificarUsuarioExistente = async (req, res) => {
       }
     });
 
+    // Si el usuario ya existe
     if (usuarioExistente) {
-      // Si se encuentra el usuario
       return res.status(200).json({ existe: true, usuario: usuarioExistente });
-    } else {
-      // Si no se encuentra el usuario
-      return res.status(404).json({ existe: false, mensaje: 'Usuario no encontrado' });
-    }
+    } 
+
+    // Si el usuario no existe, pero no generar un error, solo una respuesta
+    return res.status(200).json({ existe: false, mensaje: 'Usuario no encontrado' });
+
   } catch (error) {
     console.error(error);
     return res.status(500).json({ mensaje: 'Error en el servidor' });
   }
 };
+
 
 
 

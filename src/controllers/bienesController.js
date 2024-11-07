@@ -533,31 +533,21 @@ const obtenerTrazabilidadPorBien = async (req, res) => {
 
 
 const registrarVenta = async (req, res) => {
-  const {
-    bienId,
-    compradorId,
-    vendedorId,
-    precio,
-    cantidad,
-    metodoPago,
-  } = req.body;
+  const { bienId, compradorId, vendedorId, precio, cantidad, metodoPago } = req.body;
 
   // Validación del UUID
   if (!isValidUUID(bienId)) {
     return res.status(400).json({ mensaje: "El bienId proporcionado no es un UUID válido." });
   }
-<<<<<<< HEAD
-  
-  // Validación del precio y cantidad
-=======
 
->>>>>>> 6cd377c09f0080a4a3ed2efde4632e6e7eb49013
+  // Validación de precio y cantidad
   if (precio <= 0 || cantidad <= 0) {
     return res.status(400).json({ mensaje: "El precio y la cantidad deben ser mayores a cero." });
   }
 
+  // Inicia la transacción
   const transaction = await sequelize.transaction();
-
+  
   try {
     // Buscar el bien en la base de datos
     let bien = await Bien.findOne({
@@ -567,11 +557,13 @@ const registrarVenta = async (req, res) => {
 
     // Verificar si el bien existe
     if (!bien) {
+      await transaction.rollback(); // Rollback en caso de error
       return res.status(404).json({ mensaje: "El bien no existe." });
     }
 
     // Verificar si hay suficiente stock
     if (bien.stock < cantidad) {
+      await transaction.rollback(); // Rollback en caso de error
       return res.status(400).json({ mensaje: "Stock insuficiente para realizar la venta." });
     }
 
@@ -606,19 +598,12 @@ const registrarVenta = async (req, res) => {
     res.status(500).json({
       mensaje: "Error al registrar la transacción",
       error: error.message,
-    });
+    });  
   }
 };
 
-<<<<<<< HEAD
 
-
-const registrarCompra = async (req, res) => {
-  console.log("Datos de la solicitud:", req.body);
-  console.log("Archivos recibidos:", req.files);
-=======
 /*const registrarCompra = async (req, res) => {
->>>>>>> 6cd377c09f0080a4a3ed2efde4632e6e7eb49013
   const {
     bienId,
     compradorId,
