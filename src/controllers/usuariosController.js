@@ -24,13 +24,18 @@ const MESSAGES = {
 };
 
 const crearUsuario = async (req, res) => {
-  const { nombre, apellido, email, password, direccion, cuit, dni, tipo } = req.body;
+  const { nombre, apellido, email, password, direccion, cuit, dni, tipo, razonSocial } = req.body;
 
-  console.log(req.body); // Verificar datos recibidos
+  console.log(req.body); // Verificar los datos recibidos
 
   // Validación de campos requeridos
-  if (!nombre || !apellido || !email || !password || !tipo || !direccion) {
+  if (!nombre || !apellido || !email || !password || !tipo || !direccion || !direccion.calle || !direccion.altura || !direccion.barrio || !direccion.departamento) {
     return res.status(400).json({ message: 'Todos los campos son obligatorios' });
+  }
+
+  // Validación adicional para 'razonSocial' según el tipo
+  if (tipo === 'juridica' && !razonSocial) {
+    return res.status(400).json({ message: 'La razón social es obligatoria para tipo "juridica"' });
   }
 
   // Verificar si el email ya existe
@@ -39,36 +44,49 @@ const crearUsuario = async (req, res) => {
     return res.status(400).json({ message: 'El correo electrónico ya está registrado' });
   }
 
-  // Hashear la contraseña
-  const hashedPassword = await bcrypt.hash(password, 10);
+  // Verificar si el DNI ya existe
+  const existingDni = await Usuario.findOne({ where: { dni } });
+  if (existingDni) {
+    return res.status(400).json({ message: 'El DNI ya está registrado' });
+  }
 
-  // Crear el nuevo usuario
-  const newUser = await Usuario.create({
-    nombre,
-    apellido,
-    email,
-    password: hashedPassword,
-    direccion: {
-      calle: direccion.calle || '',
-      altura: direccion.altura || '',
-      barrio: direccion.barrio || '',
-      departamento: direccion.departamento || ''
-    },
-    cuit,
-    dni,
-    tipo,
-    estado: 'pendiente'
-  });
+  try {
+    // Hashear la contraseña
+    const hashedPassword = await bcrypt.hash(password, 10);
 
-  // Crear token JWT
-  const token = jwt.sign(
-    { id: newUser.id, email: newUser.email, role: newUser.rolDefinitivo },
-    secretKey,
-    { expiresIn: '1h' }
-  );
+    // Crear el nuevo usuario
+    const newUser = await Usuario.create({
+      nombre,
+      apellido,
+      email,
+      password: hashedPassword,
+      direccion: {
+        calle: direccion.calle || '',
+        altura: direccion.altura || '',
+        barrio: direccion.barrio || '',
+        departamento: direccion.departamento || ''
+      },
+      cuit,
+      dni,
+      tipo,
+      razonSocial: tipo === 'juridica' ? razonSocial : '', // Solo se guarda razonSocial si es tipo 'juridica'
+      estado: 'pendiente'
+    });
 
-  res.status(201).json({ message: 'Usuario registrado con éxito', newUser, token });
+    // Crear token JWT
+    const token = jwt.sign(
+      { id: newUser.id, email: newUser.email, role: newUser.rolDefinitivo },
+      secretKey,
+      { expiresIn: '1h' }
+    );
+
+    res.status(201).json({ message: 'Usuario registrado con éxito', newUser, token });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: 'Error al registrar el usuario' });
+  }
 };
+
 
 
 
@@ -245,11 +263,18 @@ const rechazarUsuario = async (req, res) => {
 
 
 
+
+
+// Obtener usuarios pendientes
 // Obtener usuarios pendientes
 const obtenerUsuariosPendientes = async (req, res) => {
   try {
     // Consulta para obtener usuarios con estado 'pendiente'
-    const usuariosPendientes = await Usuario.findAll({ where: { estado: 'pendiente' } });
+    const usuariosPendientes = await Usuario.findAll({
+      where: {
+        estado: 'pendiente'  // Consulta directa por el valor exacto del estado
+      }
+    });
 
     // Verifica si hay usuarios pendientes
     if (usuariosPendientes.length === 0) {
@@ -265,22 +290,22 @@ const obtenerUsuariosPendientes = async (req, res) => {
 };
 
 
-// Registrar usuario por tercero
+
 // Registrar usuario por tercero
 // Registrar usuario por tercero
 const registerUsuarioPorTercero = async (req, res) => {
   // Asegúrate de que todos los campos estén presentes
-  const { dniCuit, firstName, lastName, email, direccion, password } = req.body;
+  const { dni, cuit, firstName, lastName, email, direccion, password } = req.body;
 
   console.log("Datos recibidos en el backend:", req.body); // Para depurar
 
   // Validación de los campos requeridos
-  if (!dniCuit || !firstName || !lastName || !email || !direccion || !direccion.calle || !direccion.numero || !direccion.ciudad || !password) {
+  if (!dni || !cuit || !firstName || !lastName || !email || !direccion || !direccion.calle || !direccion.numero || !direccion.ciudad || !password) {
     return res.status(400).json({ message: 'Todos los campos son obligatorios' });
   }
 
   try {
-    let usuario = await Usuario.findOne({ where: { dni: dniCuit } });
+    let usuario = await Usuario.findOne({ where: { dni } });
 
     if (usuario) {
       // Comprobamos si los datos coinciden
@@ -295,17 +320,18 @@ const registerUsuarioPorTercero = async (req, res) => {
         return res.json({ usuario });
       } else {
         return res.status(400).json({
-          message: 'El DNI/CUIT ya está registrado con datos que no coinciden. Verifica la información.'
+          message: 'El DNI ya está registrado con datos que no coinciden. Verifica la información.'
         });
       }
     } else {
       // Crear el nuevo usuario con la dirección correctamente estructurada
       usuario = await Usuario.create({
-        dni: dniCuit,
+        dni,        // Guardamos el DNI
+        cuit,       // Guardamos el CUIT
         nombre: firstName,
         apellido: lastName,
         email,
-        direccion: direccion,  // Enviamos la dirección como un objeto
+        direccion,  // Enviamos la dirección como un objeto
         password: password || 'default_password', // Si no se pasa, usamos el valor por defecto
         rolDefinitivo: 'usuario'
       });
