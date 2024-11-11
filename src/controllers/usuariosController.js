@@ -292,57 +292,76 @@ const obtenerUsuariosPendientes = async (req, res) => {
 
 
 // Registrar usuario por tercero
-// Registrar usuario por tercero
 const registerUsuarioPorTercero = async (req, res) => {
-  // Asegúrate de que todos los campos estén presentes
-  const { dni, cuit, firstName, lastName, email, direccion, password } = req.body;
+  const { dni, cuit, nombre, apellido, email, direccion, password, tipo, razonSocial } = req.body;
 
-  console.log("Datos recibidos en el backend:", req.body); // Para depurar
+  console.log("Datos recibidos en el backend:", req.body);
 
-  // Validación de los campos requeridos
-  if (!dni || !cuit || !firstName || !lastName || !email || !direccion || !direccion.calle || !direccion.numero || !direccion.ciudad || !password) {
+  // Validación de campos requeridos
+  if (!dni || !cuit || !nombre || !apellido || !email || !direccion || !direccion.calle || !direccion.altura || !direccion.departamento || !password || !tipo) {
     return res.status(400).json({ message: 'Todos los campos son obligatorios' });
   }
 
+  // Validación de razón social para tipo jurídico
+  if (tipo === 'juridica' && !razonSocial) {
+    return res.status(400).json({ message: 'La razón social es obligatoria para tipo "juridica"' });
+  }
+
+  // Verificar si el email ya existe
+  const existingUser = await Usuario.findOne({ where: { email } });
+  if (existingUser) {
+    return res.status(400).json({ message: 'El correo electrónico ya está registrado' });
+  }
+
+  // Verificar si el DNI ya existe
+  const existingDni = await Usuario.findOne({ where: { dni } });
+  if (existingDni) {
+    return res.status(400).json({ message: 'El DNI ya está registrado' });
+  }
+
   try {
-    let usuario = await Usuario.findOne({ where: { dni } });
+    // Encriptar la contraseña antes de guardarla
+    const hashedPassword = await bcrypt.hash(password, 10);
 
-    if (usuario) {
-      // Comprobamos si los datos coinciden
-      if (
-        usuario.nombre === firstName &&
-        usuario.apellido === lastName &&
-        usuario.email === email &&
-        usuario.direccion?.calle === direccion.calle &&
-        usuario.direccion?.numero === direccion.numero &&
-        usuario.direccion?.ciudad === direccion.ciudad
-      ) {
-        return res.json({ usuario });
-      } else {
-        return res.status(400).json({
-          message: 'El DNI ya está registrado con datos que no coinciden. Verifica la información.'
-        });
+    // Crear el nuevo usuario
+    const usuario = await Usuario.create({
+      dni,
+      cuit,
+      nombre,
+      apellido,
+      email,
+      direccion: {
+        calle: direccion.calle,
+        numero: direccion.altura,  // Usamos 'altura' como 'numero' para la consistencia
+        departamento: direccion.departamento,
+      },
+      password: hashedPassword, // Guardamos la contraseña encriptada
+      rolDefinitivo: 'usuario',
+      tipo,
+      razonSocial: tipo === 'juridica' ? razonSocial : null,
+    });
+
+    // Responder con los datos del usuario, omitiendo la contraseña
+    res.json({
+      usuario: {
+        id: usuario.id,
+        dni: usuario.dni,
+        cuit: usuario.cuit,
+        nombre: usuario.nombre,
+        apellido: usuario.apellido,
+        email: usuario.email,
+        direccion: usuario.direccion,
+        tipo: usuario.tipo,
+        razonSocial: usuario.razonSocial,
       }
-    } else {
-      // Crear el nuevo usuario con la dirección correctamente estructurada
-      usuario = await Usuario.create({
-        dni,        // Guardamos el DNI
-        cuit,       // Guardamos el CUIT
-        nombre: firstName,
-        apellido: lastName,
-        email,
-        direccion,  // Enviamos la dirección como un objeto
-        password: password || 'default_password', // Si no se pasa, usamos el valor por defecto
-        rolDefinitivo: 'usuario'
-      });
-
-      return res.json({ usuario });
-    }
+    });
   } catch (error) {
     console.log("Error al registrar usuario por tercero:", error);
-    res.status(500).json({ message: 'Error al registrar usuario por tercero', error });
+    res.status(500).json({ message: 'Error al registrar usuario por tercero' });
   }
 };
+
+
 
 
 
