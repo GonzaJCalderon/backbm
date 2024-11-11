@@ -291,6 +291,7 @@ const obtenerUsuariosPendientes = async (req, res) => {
 
 
 
+
 // Registrar usuario por tercero
 const registerUsuarioPorTercero = async (req, res) => {
   const { dni, cuit, nombre, apellido, email, direccion, password, tipo, razonSocial } = req.body;
