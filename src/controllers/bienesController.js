@@ -100,20 +100,19 @@ const obtenerBienesStock = async (req, res) => {
 
 // Crear un nuevo bien
 const crearBien = async (req) => {
-  console.log('req.body:', req);
-
+  console.log('req.body:', req.body);
+  console.log('req.files:', req.files);
 
   try {
     const { descripcion, precio, tipo, marca, modelo, cantidad, vendedorId, fecha } = req.body;
-    const fotos = req.files;
+    const fotos = req.files.fotos;
 
     if (!fotos || fotos.length === 0) {
       throw new Error('No se han cargado fotos');
     }
 
-    if (!descripcion || !precio || !tipo || !marca || !modelo || cantidad === undefined || !vendedorId || !fecha) {
-      throw new Error('Faltan datos necesarios para crear el bien');
-    }
+    // Cargar las fotos a Firebase Storage y obtener las URLs
+    const fotosURLs = await Promise.all(fotos.map(cargarImagenAFirebase));
 
     const precioNum = parseFloat(precio);
     const cantidadNum = parseInt(cantidad, 10);
@@ -121,8 +120,6 @@ const crearBien = async (req) => {
     if (isNaN(precioNum) || isNaN(cantidadNum)) {
       throw new Error('El precio o la cantidad no son válidos');
     }
-
-    const fotosNombres = fotos.map(f => f.filename);
 
     const nuevoBien = await Bien.create({
       descripcion,
@@ -133,7 +130,7 @@ const crearBien = async (req) => {
       stock: cantidadNum,
       vendedorId,
       fecha,
-      foto: fotosNombres
+      foto: fotosURLs,
     });
 
     return nuevoBien;
@@ -146,13 +143,29 @@ const crearBien = async (req) => {
 
 
 
+
+
 // Obtener bien por ID
 // Obtener bien por ID
 const obtenerBienPorId = async (req, res) => {
   try {
-    const { id } = req.params; // id es ahora un UUID
-    // Cambia 'id' a 'uuid' para hacer la consulta correcta
-    const bien = await Bien.findOne({ where: { uuid: id } });
+    const { id } = req.params; // id es el UUID del bien
+
+    // Busca el bien por su UUID e incluye las transacciones asociadas
+    const bien = await Bien.findOne({
+      where: { uuid: id },
+      include: [
+        {
+          model: Transaccion,
+          as: 'transaccionesDeBien',  // Asegúrate de que este alias sea el mismo que definiste en el modelo
+          include: [
+            { model: Usuario, as: 'compradorTransaccion', attributes: ['id', 'nombre', 'apellido', 'email'] },
+            { model: Usuario, as: 'vendedorTransaccion', attributes: ['id', 'nombre', 'apellido', 'email'] }
+          ],
+          attributes: ['uuid', 'fecha', 'monto', 'cantidad', 'metodoPago'] // Incluir atributos relevantes de la transacción
+        }
+      ]
+    });
 
     if (!bien) {
       return res.status(404).json({ message: 'Bien no encontrado' });
@@ -160,10 +173,11 @@ const obtenerBienPorId = async (req, res) => {
 
     return res.json(bien);
   } catch (error) {
-    console.error('Error al obtener el bien:', error); // Para depuración
+    console.error('Error al obtener el bien:', error);
     return res.status(500).json({ error: 'Error al obtener el bien' });
   }
 };
+
 
 
 const registrarBien = async (req, res) => {
@@ -365,9 +379,10 @@ async function subirStockExcel(data) {
 
 
 // Obtener transacciones por bien
+// Obtener transacciones por bien
 const obtenerTransaccionesPorBien = async (req, res) => {
   const { id } = req.params;  // Asegúrate de que 'id' esté bien definido
-  const bienId = parseInt(id, 10);  // Convierte el valor a un entero
+  const bienId = id;  // El UUID del bien es un string, no lo conviertas a entero
 
   if (!bienId) {
     return res.status(400).json({ message: 'ID del bien es requerido' });
@@ -375,14 +390,15 @@ const obtenerTransaccionesPorBien = async (req, res) => {
 
   try {
     const transacciones = await Transaccion.findAll({
-      where: { bienId },
+      where: { bienId },  // Utiliza bienId como UUID
       include: [
         { model: Usuario, as: 'comprador', attributes: ['id', 'nombre', 'apellido', 'email'] },
         { model: Usuario, as: 'vendedor', attributes: ['id', 'nombre', 'apellido', 'email'] },
-        { model: Bien, as: 'bien', attributes: ['id', 'descripcion', 'marca', 'modelo'] }
+        { model: Bien, as: 'bien', attributes: ['uuid', 'descripcion', 'marca', 'modelo'] }
       ]
     });
 
+    // Verifica si hay transacciones, incluso si el comprador es null
     if (transacciones.length === 0) {
       return res.status(404).json({ message: 'No se encontraron transacciones para este bien.' });
     }
@@ -394,9 +410,12 @@ const obtenerTransaccionesPorBien = async (req, res) => {
 };
 
 
+
+
 // Obtener bienes por usuario
 const obtenerBienesDisponibles = async (req, res) => {
   try {
+    // Obtener los bienes disponibles con las fotos
     const bienes = await Bien.findAll({
       where: { stock: { [Sequelize.Op.gt]: 0 } }, // Bienes con stock mayor a 0
       include: [
@@ -409,12 +428,23 @@ const obtenerBienesDisponibles = async (req, res) => {
       return res.status(404).json({ message: 'No se encontraron bienes.' });
     }
 
-    res.status(200).json(bienes);
+    // Mapear los bienes para incluir las fotos
+    const bienesConFotos = bienes.map(bien => {
+      // Suponiendo que las fotos están en un campo llamado `fotos`
+      return {
+        ...bien.toJSON(),
+        fotos: bien.fotos ? bien.fotos.split(',') : [] // Si las fotos están almacenadas como una cadena separada por comas
+      };
+    });
+
+    res.status(200).json(bienesConFotos);
   } catch (error) {
     console.error('Error obteniendo bienes:', error);
     res.status(500).json({ message: 'Error interno del servidor', error: error.message });
   }
 };
+
+
 const obtenerTransaccionesPorUsuario = async (req, res) => {
   const { userId } = req.params;
 
@@ -503,9 +533,11 @@ const obtenerTransaccionesPorUsuario = async (req, res) => {
 const obtenerTrazabilidadPorBien = async (req, res) => {
   const { uuid } = req.params;
 
-  if (!uuid || typeof uuid !== 'string') {
-    return res.status(400).json({ message: 'El ID del bien debe ser un UUID válido.' });
+
+  if (!uuid || typeof uuid !== 'string' || !/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(uuid)) {
+      return res.status(400).json({ message: 'El ID del bien debe ser un UUID válido.' });
   }
+  
 
   try {
     console.log('ID del bien recibido:', uuid);

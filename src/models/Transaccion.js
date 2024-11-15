@@ -17,21 +17,21 @@ const Transaccion = sequelize.define('Transaccion', {
     allowNull: false
   },
   compradorId: {
-    type: DataTypes.INTEGER,
+    type: DataTypes.UUID, // Cambio a UUID
     allowNull: false,
     references: {
       model: Usuario,
-      key: 'id',
+      key: 'uuid', // Asegúrate de que se refiere al campo UUID de Usuario
     },
     onDelete: 'SET NULL',
     onUpdate: 'CASCADE',
   },
   vendedorId: {
-    type: DataTypes.INTEGER,
+    type: DataTypes.UUID, // Cambio a UUID
     allowNull: false,
     references: {
       model: Usuario,
-      key: 'id',
+      key: 'uuid', // Asegúrate de que se refiere al campo UUID de Usuario
     },
     onDelete: 'SET NULL',
     onUpdate: 'CASCADE',
@@ -41,7 +41,7 @@ const Transaccion = sequelize.define('Transaccion', {
     allowNull: false,
     references: {
       model: Bien,
-      key: 'uuid',
+      key: 'uuid', // Asegúrate de que se refiere al campo UUID de Bien
     },
     onDelete: 'CASCADE',
     onUpdate: 'CASCADE',
@@ -52,7 +52,6 @@ const Transaccion = sequelize.define('Transaccion', {
     allowNull: false,
     unique: true
   },
-
   metodoPago: {
     type: DataTypes.STRING,
     allowNull: false

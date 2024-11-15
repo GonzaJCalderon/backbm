@@ -9,21 +9,21 @@ const Bien = sequelize.define('Bien', {
     primaryKey: true
   },
   vendedorId: {
-    type: DataTypes.INTEGER,
+    type: DataTypes.UUID, // Usando UUID si es el tipo de ID de Usuario
     allowNull: true,
     references: {
       model: Usuario,
-      key: 'id',
+      key: 'uuid',
     },
     onDelete: 'SET NULL',
     onUpdate: 'CASCADE',
   },
   compradorId: {
-    type: DataTypes.INTEGER,
+    type: DataTypes.UUID, // Usando UUID
     allowNull: true,
     references: {
       model: Usuario,
-      key: 'id',
+      key: 'uuid',
     },
     onDelete: 'SET NULL',
     onUpdate: 'CASCADE',
