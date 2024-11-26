@@ -1,24 +1,22 @@
+const path = require('path');
 const multer = require('multer');
 
-// Configuración de Multer para almacenar en memoria
+// Configuración de almacenamiento en memoria
 const storage = multer.memoryStorage();
 
 // Configuración del middleware de Multer
-const upload = multer({
-  storage: storage,
-  limits: {
-    fileSize: 5 * 1024 * 1024 // Límite de 5 MB por archivo
-  },
+const uploadFotos = multer({
+  storage: storageFotos,
+  limits: { fileSize: 5 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
-    // Aceptar solo ciertos tipos de archivos
-    const allowedMimetypes = ['.jpg', '.jpeg', '.png', '.gif'];
-    const extension = path.extname(file.originalname).toLowerCase();
-    if (allowedMimetypes.includes(extension)) {
-      return cb(null, true);
-    } else {
-      cb(new Error(`Tipo de archivo no permitido. Solo se aceptan: ${allowedMimetypes.join(', ')}`), false);
-    }
-  }
-});
+    const allowedFiletypes = /jpeg|jpg|png/;
+    const extname = allowedFiletypes.test(path.extname(file.originalname).toLowerCase());
+    const mimetype = allowedFiletypes.test(file.mimetype);
 
-module.exports = upload;
+    if (extname && mimetype) {
+      cb(null, true);
+    } else {
+      cb(new Error('Error: Solo se permiten imágenes JPG, JPEG y PNG'));
+    }
+  },
+}).array('fotos', 10); // Asegúrate de que el campo sea 'fotos'
