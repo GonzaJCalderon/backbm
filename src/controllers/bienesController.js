@@ -7,9 +7,9 @@ const { Op } = require('sequelize');
 const excelToJson = require('convert-excel-to-json');
 const fs = require('fs');
 const sequelize = require('../config/db');
-const { v4: isUUID } = require('uuid');
+const { v4: generateUUID } = require('uuid');
 const { validate: validateUUID } = require('uuid');
-
+const { uploadFotosMiddleware, uploadFileToCloudinary } = require('../middlewares/uploadFotos');
 
 
 const isValidUUID = (id) => {
@@ -104,40 +104,33 @@ const crearBien = async (req) => {
   console.log('req.files:', req.files);
 
   try {
-    const { descripcion, precio, tipo, marca, modelo, cantidad, vendedorId, fecha } = req.body;
-    const fotos = req.files.fotos;
+    // Asegúrate de manejar correctamente req.files
+    const fotos = req.files;
 
     if (!fotos || fotos.length === 0) {
       throw new Error('No se han cargado fotos');
     }
 
-    // Cargar las fotos a Firebase Storage y obtener las URLs
-    const fotosURLs = await Promise.all(fotos.map(cargarImagenAFirebase));
 
-    const precioNum = parseFloat(precio);
-    const cantidadNum = parseInt(cantidad, 10);
-
-    if (isNaN(precioNum) || isNaN(cantidadNum)) {
-      throw new Error('El precio o la cantidad no son válidos');
-    }
 
     const nuevoBien = await Bien.create({
-      descripcion,
-      precio: precioNum,
-      tipo,
-      marca,
-      modelo,
-      stock: cantidadNum,
-      vendedorId,
-      fecha,
-      foto: fotosURLs,
+      tipo: req.body.tipo,
+      marca: req.body.marca,
+      modelo: req.body.modelo,
+      descripcion: req.body.descripcion,
+      precio: parseFloat(req.body.precio),
+      cantidad: parseInt(req.body.cantidad, 10),
+      metodoPago: req.body.metodoPago,
+      uuid: req.body.uuid,
+      fotos: urls,
+      fecha: new Date().toISOString(), // Generar la fecha actual
     });
+    
 
     return nuevoBien;
-
   } catch (error) {
     console.error('Error en crearBien:', error);
-    return null; // Devuelve null en caso de error
+    throw error;
   }
 };
 
@@ -472,7 +465,7 @@ const obtenerTransaccionesPorUsuario = async (req, res) => {
         {
           model: Bien,
           as: 'bien',
-          attributes: ['uuid', 'descripcion', 'marca', 'modelo', 'tipo', 'stock'],
+          attributes: ['uuid', 'descripcion', 'marca', 'modelo', 'tipo', 'stock', 'foto'], // Agregar 'foto' aquí
         },
       ],
     });
@@ -495,6 +488,7 @@ const obtenerTransaccionesPorUsuario = async (req, res) => {
           modelo: bien.modelo,
           tipo: bien.tipo,
           stock: bien.stock,
+          foto: bien.foto, // Asegúrate de incluir 'foto' aquí
         },
         comprador: {
           id: comprador.id,
@@ -656,6 +650,7 @@ const registrarVenta = async (req, res) => {
     return res.status(400).json({ mensaje: "Faltan datos necesarios para registrar la compra." });
   }
 
+
   // Validar IMEI para teléfonos móviles
   if (tipo === 'Teléfono móvil' && !imei) {
     return res.status(400).json({ mensaje: "IMEI es requerido para teléfonos móviles." });
@@ -733,107 +728,97 @@ const registrarVenta = async (req, res) => {
     });
   }
 };*/
+
+
+
 const registrarCompra = async (req, res) => {
-  const {
-    bienId,
-    compradorId,
-    vendedorId,
-    precio,
-    descripcion,
-    tipo,
-    marca,
-    modelo,
-    imei,
-    cantidad,
-    metodoPago,
-  } = req.body;
-
-
-
-  // Validar campos obligatorios
-  const requiredFields = [bienId, compradorId, vendedorId, precio, cantidad, metodoPago, tipo, marca, modelo];
-  if (requiredFields.some(field => !field)) {
-    return res.status(400).json({ mensaje: "Faltan datos necesarios para registrar la compra." });
-  }
-
-  // Validar IMEI para teléfonos móviles
-  if (tipo === 'Teléfono móvil' && !imei) {
-    return res.status(400).json({ mensaje: "IMEI es requerido para teléfonos móviles." });
-  }
-
-  // Obtener fotos del bien, si existen
-  const fotos = req.files ? req.files['fotos'] : null;
-  let fotosNombres = fotos ? fotos.map(file => file.filename) : [];
-
-  // Iniciar transacción
-  const transaction = await sequelize.transaction();
-
   try {
-    // Buscar si el bien ya existe en la base de datos
-    let bienExistente = await Bien.findOne({ where: { uuid: bienId } });
+    const {
+      tipo,
+      marca,
+      modelo,
+      descripcion,
+      precio,
+      cantidad,
+      metodoPago,
+      vendedorId,
+      compradorId,
+      imei
+    } = req.body;
 
-    if (!bienExistente) {
-      // Si el bien no existe, crear uno nuevo
-      if (!fotos || fotos.length === 0) {
-        await transaction.rollback(); // Hacer rollback si faltan fotos en un bien nuevo
-        return res.status(400).json({ mensaje: 'No se han cargado fotos para el bien nuevo' });
-      }
+    console.log('Datos recibidos en el backend:', {
+      tipo, marca, modelo, descripcion, precio, cantidad, metodoPago, vendedorId, compradorId, imei
+    });
 
-      bienExistente = await Bien.create({
-        uuid: bienId,
-        vendedorId,
-        compradorId,
-        descripcion,
-        precio,
-        fecha: new Date(),
+    if (!tipo || !marca || !modelo || !cantidad || !precio || !metodoPago || !vendedorId || !compradorId) {
+      return res.status(400).json({ mensaje: 'Faltan datos necesarios para registrar la compra.' });
+    }
+
+    // Subir fotos a Cloudinary
+    let urls = [];
+    if (req.files && req.files.length > 0) {
+      urls = await Promise.all(req.files.map((file) => uploadFileToCloudinary(file)));
+      console.log('Fotos subidas a Cloudinary:', urls);
+    }
+
+    // Verificar si el bien ya existe
+    let bien = await Bien.findOne({
+      where: { tipo, marca, modelo },
+    });
+
+    if (!bien) {
+      // Crear el bien si no existe
+      bien = await Bien.create({
         tipo,
         marca,
         modelo,
-        imei,
+        descripcion,
+        precio,
         stock: cantidad,
-        fotos: fotosNombres.join(','), // Guardar nombres de las fotos
-      }, { transaction });
+        vendedorId,
+        imei,
+        uuid: generateUUID(),
+        fecha: new Date(),
+        foto: urls.length > 0 ? urls : null, // URLs de las fotos
+      });
     } else {
-      // Si el bien existe, actualizar stock y fotos
-      bienExistente.stock += cantidad;
-      const fotosExistentes = bienExistente.fotos ? bienExistente.fotos.split(',') : [];
-      bienExistente.fotos = Array.from(new Set([...fotosExistentes, ...fotosNombres])).join(',');
-      await bienExistente.save({ transaction });
+      // Si existe, actualizar el stock y las fotos
+      bien.stock += cantidad;
+      if (urls.length > 0) {
+        bien.foto = bien.foto ? bien.foto.concat(urls) : urls;
+      }
+      await bien.save();
     }
 
-    // Crear transacción de compra
+    // Verificar stock para la compra
+    if (bien.stock < cantidad) {
+      return res.status(400).json({ mensaje: 'No hay suficiente stock disponible.' });
+    }
+
+    // Registrar la transacción
     const transaccion = await Transaccion.create({
-      bienId: bienExistente.uuid,
+      bienId: bien.uuid,
       compradorId,
       vendedorId,
       cantidad,
-      monto: precio * cantidad,
+      precio,
       metodoPago,
       fecha: new Date(),
-      estado: 'pendiente',
-      tipoTransaccion: 'Compra',
-    }, { transaction });
-
-    // Confirmar la transacción
-    await transaction.commit();
-
-    // Responder con éxito
-    return res.status(201).json({
-      mensaje: "Compra registrada exitosamente",
-      transaccion,
-      bien: bienExistente,
-      bienId: bienExistente.uuid,
     });
+
+    res.status(201).json({ mensaje: 'Compra registrada con éxito.', bien, transaccion });
   } catch (error) {
-    // Revertir la transacción en caso de error
-    await transaction.rollback();
-    console.error("Error al registrar la compra:", error);
-    return res.status(500).json({
-      mensaje: "Error al registrar la transacción",
-      error: error.message,
-    });
+    console.error('Error al registrar la compra:', error);
+    res.status(500).json({ mensaje: 'Error al procesar la compra.', error });
   }
 };
+
+
+
+
+
+
+
 
 
 
@@ -841,41 +826,49 @@ const registrarCompra = async (req, res) => {
 const actualizarStockBienes = async (compra) => {
   const { vendedorId, compradorId, bienId, cantidad } = compra;
 
+  if (!vendedorId || !compradorId || !bienId || cantidad === undefined) {
+    throw new Error('Faltan parámetros necesarios: vendedorId, compradorId, bienId, cantidad');
+  }
+
+  const transaction = await sequelize.transaction();
+
   try {
-    // Encuentra el bien del vendedor
-    const bienVendedor = await Bien.findOne({ where: { id: bienId, vendedorId } });
+    // Busca el bien del vendedor
+    const bienVendedor = await Bien.findOne({
+      where: { uuid: bienId, vendedorId },
+      transaction
+    });
 
     if (!bienVendedor) {
       throw new Error('Bien del vendedor no encontrado');
     }
 
-    // Actualiza el stock del bien del vendedor
+    // Actualiza el stock del vendedor
     bienVendedor.stock -= cantidad;
 
-    // Si el stock llega a cero o menor, eliminamos el bien del vendedor
     if (bienVendedor.stock <= 0) {
-      bienVendedor.stock = 0;
-      await bienVendedor.destroy();
+      await bienVendedor.destroy({ transaction });
     } else {
-      await bienVendedor.save();
+      await bienVendedor.save({ transaction });
     }
 
-    // Busca si el bien ya existe en el inventario del comprador
+    // Busca el bien del comprador que coincida en tipo, marca y modelo
     let bienComprador = await Bien.findOne({
       where: {
+        tipo: bienVendedor.tipo,
         marca: bienVendedor.marca,
         modelo: bienVendedor.modelo,
-        tipo: bienVendedor.tipo,
-        compradorId: compradorId
-      }
+        compradorId
+      },
+      transaction
     });
 
     if (bienComprador) {
-      // Si el bien ya existe en el inventario del comprador, solo actualizamos el stock
+      // Si existe, actualiza el stock
       bienComprador.stock += cantidad;
-      await bienComprador.save();
+      await bienComprador.save({ transaction });
     } else {
-      // Si el bien no existe en el inventario del comprador, creamos uno nuevo
+      // Si no existe, crea uno nuevo
       await Bien.create({
         vendedorId: vendedorId,
         compradorId: compradorId,
@@ -886,15 +879,93 @@ const actualizarStockBienes = async (compra) => {
         marca: bienVendedor.marca,
         modelo: bienVendedor.modelo,
         imei: bienVendedor.imei,
-        stock: cantidad,
-        createdAt: new Date(),
-        updatedAt: new Date()
-      });
+        stock: cantidad
+      }, { transaction });
     }
+
+    await transaction.commit();
   } catch (error) {
+    await transaction.rollback();
     console.error('Error al actualizar el stock de bienes:', error);
+    throw error; // Lanza el error para que el controlador lo maneje
   }
 };
+
+
+// Controlador para obtener bienes filtrados por marca, tipo y modelo
+const getBienesPorMarcaTipoModelo = async (req, res) => {
+  try {
+    const { marca, tipo, modelo } = req.query;
+
+    // Construir el objeto de filtros dinámicos
+    const filtros = {};
+
+    if (marca) {
+      filtros.marca = marca;
+    }
+    if (tipo) {
+      filtros.tipo = tipo;
+    }
+    if (modelo) {
+      filtros.modelo = modelo;
+    }
+
+    // Buscar bienes según los filtros
+    const bienes = await Bien.findAll({
+      where: filtros
+    });
+
+    // Verificar si se encontraron bienes
+    if (bienes.length === 0) {
+      return res.status(404).json({ message: 'No se encontraron bienes que coincidan con los criterios proporcionados.' });
+    }
+
+    // Devolver los bienes encontrados
+    return res.status(200).json(bienes);
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ message: 'Error al obtener los bienes.' });
+  }
+};
+
+const actualizarStockPorParametros = async (req, res) => {
+  const { tipo, marca, modelo, cantidad } = req.body;
+
+  // Validación de parámetros
+  if (!tipo || !marca || !modelo || cantidad === undefined) {
+    return res.status(400).json({ message: 'Faltan parámetros requeridos: tipo, marca, modelo, cantidad' });
+  }
+
+  try {
+    const bienesAActualizar = await Bien.findAll({
+      where: {
+        tipo: tipo,
+        marca: marca,
+        modelo: modelo
+      }
+    });
+
+    if (bienesAActualizar.length === 0) {
+      return res.status(404).json({ message: 'No se encontraron bienes que coincidan con los parámetros.' });
+    }
+
+    for (let bien of bienesAActualizar) {
+      bien.stock += cantidad;
+      await bien.save();
+    }
+
+    return res.status(200).json({ message: 'Stock actualizado correctamente' });
+  } catch (error) {
+    console.error('Error al actualizar el stock:', error);
+    return res.status(500).json({ message: 'Error al actualizar el stock.' });
+  }
+};
+
+
+
+
+
+
 
 module.exports = {
   obtenerBienes,
@@ -913,5 +984,8 @@ module.exports = {
   registrarVenta,
   registrarCompra,
   actualizarStockBienes,
+  getBienesPorMarcaTipoModelo,
+  actualizarStockPorParametros ,
+  registrarCompra,
 };
 
