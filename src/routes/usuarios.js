@@ -30,8 +30,8 @@ router.get('/usuarios/pendientes', verifyToken, verificarPermisos(['administrado
 // Ruta para obtener un usuario por su ID (protegida, accesible para administrador y moderador)
 router.get('/:id', verifyToken, verificarPermisos(['administrador', 'moderador']), usuarioController.obtenerUsuarioPorId);
 
-// Ruta para actualizar un usuario por su ID (protegida y accesible solo para administrador)
-router.put('/:id', verifyToken, verificarPermisos(['administrador']), usuarioController.actualizarUsuario);
+// Ruta para actualizar un usuario por su ID (protegida, accesible para administrador y usuario)
+router.put('/:id', verifyToken, verificarPermisos(['administrador','usuario' ]), usuarioController.actualizarUsuario);
 
 // Ruta para obtener detalles del usuario por su ID (protegida, accesible para administrador y moderador)
 router.get('/:id/detalles', verifyToken, verificarPermisos(['administrador', 'moderador']), usuarioController.obtenerUsuarioDetalles);

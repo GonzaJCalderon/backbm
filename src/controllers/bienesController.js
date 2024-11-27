@@ -455,7 +455,7 @@ const obtenerTransaccionesPorUsuario = async (req, res) => {
         {
           model: Usuario,
           as: 'comprador',
-          attributes: ['id', 'nombre', 'apellido', 'dni', 'cuit', 'email', 'direccion'],
+          attributes: ['id', 'nombre', 'apellido', 'dni', 'cuit', 'email', 'direccion' ],
         },
         {
           model: Usuario,
@@ -465,12 +465,11 @@ const obtenerTransaccionesPorUsuario = async (req, res) => {
         {
           model: Bien,
           as: 'bien',
-          attributes: ['uuid', 'descripcion', 'marca', 'modelo', 'tipo', 'stock', 'foto'], // Agregar 'foto' aquí
+          attributes: ['uuid', 'descripcion', 'marca', 'modelo', 'tipo', 'stock', 'foto'],
         },
       ],
     });
 
-    // Imprime las transacciones encontradas para depuración
     console.log('Transacciones encontradas:', transacciones);
 
     if (!transacciones || transacciones.length === 0) {
@@ -488,25 +487,27 @@ const obtenerTransaccionesPorUsuario = async (req, res) => {
           modelo: bien.modelo,
           tipo: bien.tipo,
           stock: bien.stock,
-          foto: bien.foto, // Asegúrate de incluir 'foto' aquí
+          foto: bien.foto,
         },
         comprador: {
           id: comprador.id,
           nombre: comprador.nombre,
           apellido: comprador.apellido,
-          dni: comprador.dni || 'Sin DNI/CUIT',
-          cuit: comprador.cuit || 'Sin DNI/CUIT',
-          email: comprador.email || 'Sin email',
-          direccion: comprador.direccion || 'Sin dirección',
+          dni: comprador.dni,
+          cuit: comprador.cuit,
+          email: comprador.email,
+          direccion: comprador.direccion,
+         
         },
         vendedor: {
           id: vendedor.id,
           nombre: vendedor.nombre,
           apellido: vendedor.apellido,
-          dni: vendedor.dni || 'Sin DNI/CUIT',
-          cuit: vendedor.cuit || 'Sin DNI/CUIT',
-          email: vendedor.email || 'Sin email',
-          direccion: vendedor.direccion || 'Sin dirección',
+          dni: vendedor.dni,
+          cuit: vendedor.cuit,
+          email: vendedor.email,
+          direccion: vendedor.direccion,
+          
         },
       };
     });
@@ -517,6 +518,8 @@ const obtenerTransaccionesPorUsuario = async (req, res) => {
     res.status(500).json({ message: 'Error al obtener las transacciones.' });
   }
 };
+
+module.exports = { obtenerTransaccionesPorUsuario };
 
 
 
@@ -560,6 +563,15 @@ const obtenerTrazabilidadPorBien = async (req, res) => {
 
 const registrarVenta = async (req, res) => {
   const { bienId, compradorId, vendedorId, precio, cantidad, metodoPago } = req.body;
+
+  // Obtener los datos del comprador y del vendedor
+  const comprador = await Usuario.findByPk(compradorId);
+  const vendedor = await Usuario.findByPk(vendedorId);
+
+  // Verificar que el comprador y el vendedor no sean la misma persona comparando DNI
+  if (comprador.dni === vendedor.dni) {
+    return res.status(400).json({ mensaje: "No puedes vender a ti mismo." });
+  }
 
   // Validación del UUID
   if (!isValidUUID(bienId)) {
@@ -730,7 +742,6 @@ const registrarVenta = async (req, res) => {
 };*/
 
 
-
 const registrarCompra = async (req, res) => {
   try {
     const {
@@ -752,6 +763,15 @@ const registrarCompra = async (req, res) => {
 
     if (!tipo || !marca || !modelo || !cantidad || !precio || !metodoPago || !vendedorId || !compradorId) {
       return res.status(400).json({ mensaje: 'Faltan datos necesarios para registrar la compra.' });
+    }
+
+    // Obtener los datos del comprador y del vendedor
+    const comprador = await Usuario.findByPk(compradorId);
+    const vendedor = await Usuario.findByPk(vendedorId);
+
+    // Verificar que el comprador y el vendedor no sean la misma persona comparando DNI
+    if (comprador.dni === vendedor.dni) {
+      return res.status(400).json({ mensaje: "No puedes vender a ti mismo." });
     }
 
     // Subir fotos a Cloudinary

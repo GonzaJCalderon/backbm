@@ -747,41 +747,47 @@ const obtenerUsuariosRechazados = async (req, res) => {
   }
 };
 
-// Función para verificar si el usuario existe
-// Función para verificar si el usuario existe
 const verificarUsuarioExistente = async (req, res) => {
   try {
-    // Obtener los datos del body
-    const { nombre, apellido, dni, cuit } = req.body;
+    const { nombre, apellido, dni, cuit, email } = req.body;
 
-    // Construir la consulta dinámica
-    const condiciones = [];
+    // Verificar que los campos requeridos no sean undefined
+    if (!dni || !email) {
+      return res.status(400).json({ mensaje: 'DNI y email son obligatorios.' });
+    }
 
-    if (nombre) condiciones.push({ nombre: nombre });
-    if (apellido) condiciones.push({ apellido: apellido });
-    if (dni) condiciones.push({ dni: dni });
-    if (cuit) condiciones.push({ cuit: cuit });
-
-    // Realizar la búsqueda en la base de datos
     const usuarioExistente = await Usuario.findOne({
       where: {
-        [Op.or]: condiciones // Usamos Op.or para combinar las condiciones de manera OR
-      }
+        [Op.or]: [
+          { email: email },
+          { dni: dni },
+        ],
+      },
     });
 
-    // Si el usuario ya existe
     if (usuarioExistente) {
-      return res.status(200).json({ existe: true, usuario: usuarioExistente });
-    } 
+      const inconsistencias = [];
+      if (usuarioExistente.nombre && nombre && usuarioExistente.nombre !== nombre) inconsistencias.push('nombre');
+      if (usuarioExistente.apellido && apellido && usuarioExistente.apellido !== apellido) inconsistencias.push('apellido');
+      if (usuarioExistente.dni && dni && usuarioExistente.dni !== dni) inconsistencias.push('dni');
+      if (usuarioExistente.cuit && cuit && usuarioExistente.cuit !== cuit) inconsistencias.push('cuit');
 
-    // Si el usuario no existe, pero no generar un error, solo una respuesta
+      if (inconsistencias.length > 0) {
+        return res.status(200).json({ existe: true, mensaje: 'Datos inconsistentes', inconsistencias, usuario: usuarioExistente });
+      } else {
+        return res.status(200).json({ existe: true, usuario: usuarioExistente });
+      }
+    }
+
     return res.status(200).json({ existe: false, mensaje: 'Usuario no encontrado' });
-
   } catch (error) {
-    console.error(error);
+    console.error('Error en verificarUsuarioExistente:', error);
     return res.status(500).json({ mensaje: 'Error en el servidor' });
   }
 };
+
+
+
 
 
 
