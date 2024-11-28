@@ -497,7 +497,6 @@ const obtenerTransaccionesPorUsuario = async (req, res) => {
           cuit: comprador.cuit,
           email: comprador.email,
           direccion: comprador.direccion,
-         
         },
         vendedor: {
           id: vendedor.id,
@@ -507,7 +506,6 @@ const obtenerTransaccionesPorUsuario = async (req, res) => {
           cuit: vendedor.cuit,
           email: vendedor.email,
           direccion: vendedor.direccion,
-          
         },
       };
     });
@@ -519,38 +517,41 @@ const obtenerTransaccionesPorUsuario = async (req, res) => {
   }
 };
 
-module.exports = { obtenerTransaccionesPorUsuario };
 
-
-
-
-
-// Controlador para obtener la trazabilidad de un bien
-// Controlador para obtener la trazabilidad de un bien
 const obtenerTrazabilidadPorBien = async (req, res) => {
   const { uuid } = req.params;
-
 
   if (!uuid || typeof uuid !== 'string' || !/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(uuid)) {
       return res.status(400).json({ message: 'El ID del bien debe ser un UUID válido.' });
   }
   
-
   try {
     console.log('ID del bien recibido:', uuid);
 
     const transacciones = await Transaccion.findAll({
-      where: { bienId: uuid }, // Asegúrate de que bienId esté definido correctamente
+      where: { bienId: uuid },
       include: [
-        { model: Usuario, as: 'compradorTransaccion', attributes: ['nombre', 'apellido'] },
-        { model: Usuario, as: 'vendedorTransaccion', attributes: ['nombre', 'apellido'] },
-        { model: Bien, as: 'bienTransaccion', attributes: ['descripcion', 'precio', 'tipo', 'marca', 'modelo'] }
+        {
+          model: Usuario, 
+          as: 'compradorTransaccion', 
+          attributes: ['nombre', 'apellido', 'dni', 'email', 'cuit', 'direccion']
+        },
+        {
+          model: Usuario, 
+          as: 'vendedorTransaccion', 
+          attributes: ['nombre', 'apellido', 'dni', 'email', 'cuit', 'direccion']
+        },
+        { 
+          model: Bien, 
+          as: 'bienTransaccion', 
+          attributes: ['descripcion', 'precio', 'tipo', 'marca', 'modelo'] 
+        }
       ],
       order: [['fecha', 'DESC']]
     });
 
     if (!transacciones.length) {
-      return res.status(404).json({ message: 'No se encontraron transacciones para este bien.' });
+      return res.status(200).json({ message: 'No se encontraron transacciones para este bien.' });
     }
 
     res.json(transacciones);
@@ -559,6 +560,7 @@ const obtenerTrazabilidadPorBien = async (req, res) => {
     res.status(500).json({ message: 'Error al obtener trazabilidad.', error: error.message });
   }
 };
+
 
 
 const registrarVenta = async (req, res) => {

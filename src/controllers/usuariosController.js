@@ -795,6 +795,8 @@ const verificarUsuarioExistente = async (req, res) => {
 
 
 
+
+
 module.exports = {
   crearUsuario,
   loginUsuario,
@@ -820,4 +822,5 @@ module.exports = {
   cambiarRol,
   obtenerUsuariosRechazados,
   verificarUsuarioExistente,
+
 };
