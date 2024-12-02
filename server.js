@@ -41,7 +41,7 @@ const corsOptions = {
   origin: [
     'http://localhost:3000',
   ],
-  methods: ['GET', 'POST', 'PUT', 'DELETE'],
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
   allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: true,
 };
@@ -68,6 +68,7 @@ const usuariosRoutes = require('./src/routes/usuarios');
 const authRoutes = require('./src/routes/auth');
 const salesRoutes = require('./src/routes/sales');
 const stockRoutes = require('./src/routes/stock');
+const searchRoutes = require('./src/routes/search')
 
 // Usar rutas
 app.use('/bienes', bienesRoutes);
@@ -75,6 +76,8 @@ app.use('/usuarios', usuariosRoutes);
 app.use('/auth', authRoutes);
 app.use('/sales', salesRoutes);
 app.use('/stock', stockRoutes);
+app.use('/search', searchRoutes); 
+
 
 // Verificar la conexión a la base de datos
 sequelize.authenticate()

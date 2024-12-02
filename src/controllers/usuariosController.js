@@ -658,29 +658,26 @@ const removerRolTemporal = async (req, res) => {
 };
 
 const cambiarRol = async (req, res) => {
-  const { id } = req.params;  // El ID del usuario que deseas actualizar
-  const { nuevoRol } = req.body;  // El nuevo rol que enviarás en la solicitud
+  const { id } = req.params;  // ID del usuario
+  const { nuevoRol } = req.body;  // Nuevo rol a asignar
 
   try {
-    // Buscar el usuario por ID
-    const usuario = await Usuario.findByPk(id);
+      const usuario = await Usuario.findByPk(id);
 
-    // Verificar si el usuario existe
-    if (!usuario) {
-      return res.status(404).json({ message: 'Usuario no encontrado' });
-    }
+      if (!usuario) {
+          return res.status(404).json({ message: 'Usuario no encontrado' });
+      }
 
-    // Actualizar el rol del usuario
-    usuario.rolDefinitivo = nuevoRol;
-    await usuario.save();
+      usuario.rolDefinitivo = nuevoRol; // Actualizamos el rol
+      await usuario.save();
 
-    // Responder con el usuario actualizado
-    res.json({ message: 'Rol del usuario actualizado correctamente', usuario });
+      res.json({ message: 'Rol del usuario actualizado correctamente', usuario });
   } catch (error) {
-    console.error('Error actualizando el rol:', error);
-    res.status(500).json({ message: 'Error al actualizar el rol del usuario', error });
+      console.error('Error actualizando el rol:', error);
+      res.status(500).json({ message: 'Error al actualizar el rol del usuario', error });
   }
 };
+
 
 
 const obtenerUsuariosAprobados = async (req, res) => {

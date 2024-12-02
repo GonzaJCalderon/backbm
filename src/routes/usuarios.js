@@ -25,7 +25,7 @@ router.get('/usuario/detalles', verifyToken, verificarPermisos(['administrador',
 router.get('/compradores', verifyToken, verificarPermisos(['administrador', 'moderador']), usuarioController.obtenerCompradores);
 
 // Ruta para obtener usuarios pendientes (protegida y accesible solo para administrador)
-router.get('/usuarios/pendientes', verifyToken, verificarPermisos(['administrador']), usuarioController.obtenerUsuariosPendientes);
+router.get('/usuarios/pendientes', verifyToken, verificarPermisos(['administrador', 'moderador']), usuarioController.obtenerUsuariosPendientes);
 
 // Ruta para obtener un usuario por su ID (protegida, accesible para administrador y moderador)
 router.get('/:id', verifyToken, verificarPermisos(['administrador', 'moderador']), usuarioController.obtenerUsuarioPorId);
@@ -67,7 +67,7 @@ router.get('/usuarios/aprobados', verifyToken, verificarPermisos(['administrador
 router.get('/usuarios/rechazados', verifyToken, verificarPermisos(['administrador', 'moderador']), usuarioController.obtenerUsuariosRechazados);
 
 // Ruta para cambiar el rol del usuario a 'administrador' (protegida y accesible solo para administrador)
-router.put('/:id/cambiar-rol', verifyToken, verificarPermisos(['administrador']), usuarioController.cambiarRol);
+router.patch('/usuarios/:id/rol', verifyToken, verificarPermisos(['administrador']), usuarioController.cambiarRol);
 
 // Ruta para verificar si el usuario existe
 router.post('/check', usuarioController.verificarUsuarioExistente);
