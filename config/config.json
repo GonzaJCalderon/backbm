@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 {
   "development": {
     "username": "postgres",
@@ -21,3 +22,28 @@
     "dialect": "postgres"
   }
 }
+=======
+{
+  "development": {
+    "username": "postgres",
+    "password": "post",
+    "database": "bienes_muebles",
+    "host": "localhost",
+    "dialect": "postgres"
+  },
+  "test": {
+    "username": "your_username",
+    "password": "your_password",
+    "database": "your_database_name",
+    "host": "127.0.0.1",
+    "dialect": "postgres"
+  },
+  "production": {
+    "username": "your_username",
+    "password": "your_password",
+    "database": "your_database_name",
+    "host": "127.0.0.1",
+    "dialect": "postgres"
+  }
+}
+>>>>>>> 6cd377c09f0080a4a3ed2efde4632e6e7eb49013

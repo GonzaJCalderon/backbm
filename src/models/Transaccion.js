@@ -10,42 +10,44 @@ const Transaccion = sequelize.define('Transaccion', {
   },
   monto: {
     type: DataTypes.FLOAT,
-    allowNull: false
+    allowNull: true, // Permitir null temporalmente
   },
+  
   cantidad: {
     type: DataTypes.INTEGER,
     allowNull: false
   },
   compradorId: {
-    type: DataTypes.INTEGER,
+    type: DataTypes.UUID, // Cambio a UUID
     allowNull: false,
     references: {
       model: Usuario,
-      key: 'id',
+      key: 'uuid', // Asegúrate de que se refiere al campo UUID de Usuario
     },
     onDelete: 'SET NULL',
     onUpdate: 'CASCADE',
   },
   vendedorId: {
-    type: DataTypes.INTEGER,
+    type: DataTypes.UUID, // Cambio a UUID
     allowNull: false,
     references: {
       model: Usuario,
-      key: 'id',
+      key: 'uuid', // Asegúrate de que se refiere al campo UUID de Usuario
     },
     onDelete: 'SET NULL',
     onUpdate: 'CASCADE',
   },
   bienId: {
-    type: DataTypes.UUID, // Asegúrate de que este sea UUID
+    type: DataTypes.UUID,
     allowNull: false,
     references: {
       model: Bien,
-      key: 'uuid',
+      key: 'uuid', // Referencia explícita al UUID del modelo Bien
     },
     onDelete: 'CASCADE',
     onUpdate: 'CASCADE',
   },
+  
   uuid: {
     type: DataTypes.UUID,
     defaultValue: DataTypes.UUIDV4,
@@ -60,6 +62,8 @@ const Transaccion = sequelize.define('Transaccion', {
   tableName: 'transacciones',
   timestamps: true,
 });
+
+
 
 // Relaciones
 Transaccion.belongsTo(Usuario, { as: 'comprador', foreignKey: 'compradorId' });

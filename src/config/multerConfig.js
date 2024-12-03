@@ -1,37 +1,22 @@
-const multer = require('multer');
 const path = require('path');
+const multer = require('multer');
 
-// Configuración de Multer
-const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    cb(null, path.join(__dirname, '../../uploads')); // Guardar en la carpeta uploads del directorio raíz
-  },
-  filename: function (req, file, cb) {
-    cb(null, `${file.fieldname}-${Date.now()}${path.extname(file.originalname)}`);
-  }
-});
+// Configuración de almacenamiento en memoria
+const storage = multer.memoryStorage();
 
 // Configuración del middleware de Multer
-const upload = multer({
-  storage: storage,
-  limits: {
-    fileSize: 5 * 1024 * 1024 // Límite de 5 MB por archivo
-  },
+const uploadFotos = multer({
+  storage: storageFotos,
+  limits: { fileSize: 5 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
-    // Aceptar solo ciertos tipos de archivos
-    console.log('Archivo recibido:', file);
-    console.log('Mimetype:', file.mimetype);
-    console.log('Nombre original:', file.originalname);
-    const extension = path.extname(file.originalname).toLowerCase();
-    const allowedMimetypes = ['.jpg', '.jpeg', '.png', '.gif'];
-    if (allowedMimetypes.includes(extension)) {
-      return cb(null, true);
-    } else {
-      cb(new Error(`Tipo de archivo no permitido. 
-        Solo se aceptan: ${allowedMimetypes.join(', ')}
-        Recibido: ${file.mimetype}`), false);
-    }
-  }
-});
+    const allowedFiletypes = /jpeg|jpg|png/;
+    const extname = allowedFiletypes.test(path.extname(file.originalname).toLowerCase());
+    const mimetype = allowedFiletypes.test(file.mimetype);
 
-module.exports = upload;
+    if (extname && mimetype) {
+      cb(null, true);
+    } else {
+      cb(new Error('Error: Solo se permiten imágenes JPG, JPEG y PNG'));
+    }
+  },
+}).array('fotos', 10); // Asegúrate de que el campo sea 'fotos'
