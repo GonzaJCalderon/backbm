@@ -143,7 +143,7 @@ router.get('/trazabilidad/:uuid', bienesController.obtenerTrazabilidadPorBien);
 router.get('/transacciones/usuario/:userId', bienesController.obtenerTransaccionesPorUsuario);
 
 // Ruta para obtener el stock de bienes de un usuario
-router.get('/usuario/:userId/stock', verifyToken, bienesController.obtenerBienesDisponibles);
+router.get('/stock', verifyToken, bienesController.obtenerBienesStock);
 
 // Ruta para comprar un bien
 // router.post('/comprar', async (req, res) => {
@@ -175,6 +175,10 @@ router.post('/comprar', uploadFotosMiddleware, bienesController.registrarCompra)
 
 // Ruta para obtener bienes en stock
 router.get('/stock', bienesController.obtenerBienesStock);
+
+// Ruta para obtener bienes de un usuario
+router.get('/bien/usuario/:userId', verifyToken, bienesController.obtenerBienesPorUsuario);
+
 
 // Ruta para registrar una venta
 router.post('/vender', verifyToken, bienesController.registrarVenta);
