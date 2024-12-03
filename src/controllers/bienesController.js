@@ -985,7 +985,48 @@ const actualizarStockPorParametros = async (req, res) => {
 
 
 
+const obtenerBienesPorUsuario = async (req, res) => {
+  try {
+    const { userId } = req.params; // Usamos req.params en lugar de req.query
 
+    if (!userId) {
+      return res.status(400).json({ message: 'El parámetro userId es requerido.' });
+    }
+
+    // Lógica para obtener los bienes del usuario
+    const bienes = await Bien.findAll({
+      where: {
+        [Op.or]: [
+          { vendedorId: userId },
+          { compradorId: userId }
+        ],
+        stock: { [Op.gt]: 0 }
+      },
+      include: [
+        {
+          model: Usuario,
+          as: 'vendedor',
+          attributes: ['id', 'nombre', 'apellido']
+        },
+        {
+          model: Usuario,
+          as: 'comprador',
+          attributes: ['id', 'nombre', 'apellido']
+        }
+      ]
+    });
+
+    if (!bienes.length) {
+      return res.status(404).json({ message: 'No se encontraron bienes para este usuario.' });
+    }
+
+    res.json({ bienes });
+
+  } catch (error) {
+    console.error('Error obteniendo bienes por usuario:', error);
+    res.status(500).json({ message: 'Error al obtener los bienes.', error: error.message });
+  }
+};
 
 
 
@@ -1009,5 +1050,7 @@ module.exports = {
   getBienesPorMarcaTipoModelo,
   actualizarStockPorParametros ,
   registrarCompra,
+  obtenerBienesPorUsuario, 
+  
 };
 
