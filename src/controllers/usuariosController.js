@@ -1,364 +1,126 @@
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const { enviarCorreo } = require('../services/emailService');
-const Usuario = require('../models/Usuario');
-const Bien = require('../models/Bien');
-const Transaccion = require('../models/Transaccion')
+require('dotenv').config();
+
+const {Usuario, Bien, Stock, Transaccion, HistorialCambios, DetallesBien, PasswordResetToken} = require('../models'); // Importa los modelos correctamente
 const { Op } = require('sequelize');
+const { validarCampos } = require('../utils/validationUtils');
+const { enviarCorreo } = require('../services/emailService');
+const moment = require('moment');
+
+
+
+const DEFAULT_PASSWORD = 'Contraseña123';
+const secretKey = process.env.SECRET_KEY || 'bienes_muebles';
+const refreshToken = process.env.REFRESH_SECRET_KEY || 'refresh_token ';
 const { v4: uuidv4 } = require('uuid');
-const nodemailer = require('nodemailer');
-require('dotenv').config(); // Esto carga las variables del archivo .env
 
 
-const secretKey = process.env.SECRET_KEY;
 
 // Crear un nuevo usuario
-
-const MESSAGES = {
-  USER_NOT_FOUND: 'Usuario no encontrado',
-  INVALID_CREDENTIALS: 'Credenciales inválidas',
-  ACCOUNT_NOT_APPROVED: 'Cuenta no aprobada',
-  USER_REGISTERED: 'Usuario registrado con éxito',
-  USER_UPDATED: 'Usuario actualizado correctamente',
-  // ... otros mensajes
-};
-
+// Crear un nuevo usuario
 const crearUsuario = async (req, res) => {
-  const { nombre, apellido, email, password, direccion, cuit, dni, tipo, razonSocial } = req.body;
-
-  console.log(req.body); // Verificar los datos recibidos
-
-  // Validación de campos requeridos
-  if (!nombre || !apellido || !email || !password || !tipo || !direccion || !direccion.calle || !direccion.altura || !direccion.barrio || !direccion.departamento) {
-    return res.status(400).json({ message: 'Todos los campos son obligatorios' });
-  }
-
-  // Validación adicional para 'razonSocial' según el tipo
-  if (tipo === 'juridica' && !razonSocial) {
-    return res.status(400).json({ message: 'La razón social es obligatoria para tipo "juridica"' });
-  }
-
-  // Verificar si el email ya existe
-  const existingUser = await Usuario.findOne({ where: { email } });
-  if (existingUser) {
-    return res.status(400).json({ message: 'El correo electrónico ya está registrado' });
-  }
-
-  // Verificar si el DNI ya existe
-  const existingDni = await Usuario.findOne({ where: { dni } });
-  if (existingDni) {
-    return res.status(400).json({ message: 'El DNI ya está registrado' });
-  }
-
   try {
-    // Hashear la contraseña
-    const hashedPassword = await bcrypt.hash(password, 10);
+    const { nombre, apellido, email, dni, cuit, direccion, password, rolDefinitivo, tipo } = req.body;
 
-    // Crear el nuevo usuario
-    const newUser = await Usuario.create({
+    // Validar campos obligatorios
+    if (!nombre || !email || !password || !tipo) {
+      return res.status(400).json({ message: 'Nombre, correo electrónico, contraseña y tipo son obligatorios.' });
+    }
+
+    // Normalizar el email
+    const emailNormalizado = email.trim().toLowerCase();
+
+    // Verificar si el usuario ya existe
+    const usuarioExistente = await Usuario.findOne({ where: { email: emailNormalizado } });
+    if (usuarioExistente) {
+      return res.status(400).json({ message: 'El usuario ya existe con ese correo electrónico.' });
+    }
+
+    // Validar tipo
+    const tiposValidos = ['fisica', 'juridica'];
+    if (!tiposValidos.includes(tipo)) {
+      return res.status(400).json({ message: 'El tipo debe ser "fisica" o "juridica".' });
+    }
+
+    // Asignar rol por defecto si no se especifica
+    const rolesValidos = ['admin', 'usuario', 'moderador'];
+    const rolAsignado = rolesValidos.includes(rolDefinitivo) ? rolDefinitivo : 'usuario';
+
+    // Hashear la contraseña
+    const salt = await bcrypt.genSalt(10);
+    const passwordHasheada = await bcrypt.hash(password, salt);
+
+    // Crear el usuario
+    const usuario = await Usuario.create({
       nombre,
       apellido,
-      email,
-      password: hashedPassword,
-      direccion: {
-        calle: direccion.calle || '',
-        altura: direccion.altura || '',
-        barrio: direccion.barrio || '',
-        departamento: direccion.departamento || ''
-      },
-      cuit,
+      email: emailNormalizado,
       dni,
-      tipo,
-      razonSocial: tipo === 'juridica' ? razonSocial : '', // Solo se guarda razonSocial si es tipo 'juridica'
-      estado: 'pendiente'
+      cuit,
+      direccion,
+      password: passwordHasheada,
+      rolDefinitivo: rolAsignado,
+      tipo, // Ahora se incluye el campo tipo
     });
 
-    // Crear token JWT
+    const usuarioSinPassword = usuario.toJSON();
+    delete usuarioSinPassword.password;
+
+    res.status(201).json(usuarioSinPassword);
+  } catch (error) {
+    console.error('Error al crear usuario:', error);
+    res.status(500).json({ message: 'Error interno del servidor.' });
+  }
+};
+
+
+
+const login = async (req, res) => {
+  const { email, password } = req.body;
+
+  try {
+    const usuario = await Usuario.findOne({ where: { email } });
+    if (!usuario) {
+      return res.status(404).json({ message: 'Usuario no encontrado.' });
+    }
+
+    const esPasswordCorrecto = await bcrypt.compare(password, usuario.password);
+    if (!esPasswordCorrecto) {
+      return res.status(401).json({ message: 'Contraseña incorrecta.' });
+    }
+
+    const secretKey = process.env.SECRET_KEY || 'bienes_muebles';
+    const refreshSecret = process.env.REFRESH_SECRET_KEY || 'refresh_muebles';
+
+    // Generar token principal (JWT)
     const token = jwt.sign(
-      { id: newUser.id, email: newUser.email, role: newUser.rolDefinitivo },
+      { uuid: usuario.uuid, email: usuario.email, rol: usuario.rolDefinitivo },
       secretKey,
       { expiresIn: '1h' }
     );
 
-    res.status(201).json({ message: 'Usuario registrado con éxito', newUser, token });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: 'Error al registrar el usuario' });
-  }
-};
-
-
-
-
-
-// Iniciar sesión
-// Iniciar sesión
-const loginUsuario = async (req, res) => {
-  const { email, password } = req.body;
-
-  try {
-    // Buscar el usuario por email
-    const user = await Usuario.findOne({ where: { email } });
-
-    if (!user) {
-      return res.status(401).json({ message: 'Credenciales inválidas' });
-    }
-
-    // Verificar la contraseña
-    const isPasswordValid = await bcrypt.compare(password, user.password);
-    if (!isPasswordValid) {
-      return res.status(401).json({ message: 'Credenciales inválidas' });
-    }
-
-    // Verificar el estado del usuario
-    if (user.estado !== 'aprobado') {
-      return res.status(403).json({ message: 'Cuenta no aprobada' });
-    }
-
-    // Preparar la respuesta del usuario
-    const responseUser = {
-      id: user.id,
-      email: user.email,
-      nombre: user.nombre,
-      apellido: user.apellido,
-      direccion: user.direccion,
-      rolTemporal: user.rolTemporal,
-      rolDefinitivo: user.rolDefinitivo,
-      tipo: user.tipo,
-      cuit: user.cuit,
-      dni: user.dni,
-    };
-
-    // Generar el token JWT incluyendo rolDefinitivo
-    const token = jwt.sign(
-      {
-        id: user.id,
-        email: user.email,
-        rolDefinitivo: user.rolDefinitivo, // Asegúrate de incluir rolDefinitivo aquí
-      },
-      process.env.SECRET_KEY,
-      { expiresIn: '1h' }
+    // Generar refresh token
+    const refreshToken = jwt.sign(
+      { uuid: usuario.uuid },
+      refreshSecret,
+      { expiresIn: '7d' } // El refresh token dura más
     );
 
-    // Enviar la respuesta
-    res.json({ usuario: responseUser, token });
-  } catch (error) {
-    console.error('Error en la autenticación:', error);
-    res.status(500).json({ message: 'Error en la autenticación', error });
-  }
-};
-
-
-
-// Obtener todos los usuarios
-const obtenerUsuarios = async (req, res) => {
-  try {
-    const usuarios = await Usuario.findAll();
-    res.json(usuarios);
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-};
-
-// Obtener un usuario por ID
-const obtenerUsuarioPorId = async (req, res) => {
-  const { id } = req.params;
-  try {
-    const usuario = await Usuario.findByPk(id);
-    if (!usuario) {
-      res.status(404).json({ message: 'Usuario no encontrado' });
-    } else {
-      res.json(usuario);
-    }
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-};
-
-
-const obtenerUsuarioPorDni = async (req, res) => {
-  try {
-    const { dni } = req.query;
-
-    // Verifica si el parámetro dni está presente en la consulta
-    if (!dni) {
-      return res.status(400).json({ error: 'El parámetro dni es requerido' });
-    }
-
-    // Busca el usuario en la base de datos usando el DNI
-    const usuario = await Usuario.findOne({ where: { dni: String(dni) } }); // Asegúrate de tratar el dni como un string
-
-    // Si no se encuentra el usuario, devuelve un array vacío con código 202
-    if (!usuario) {
-      return res.status(202).json([]);
-    }
-
-    // Si se encuentra el usuario, devuelve la información
-    res.json({ usuario });
-  } catch (error) {
-    // Manejo de errores del servidor
-    res.status(500).json({ error: 'Error interno del servidor' });
-  }
-};
-
-
-
-// Aprobar usuario
-// Aprobar usuario
-const aprobarUsuario = async (req, res) => {
-  const { id } = req.params;
-
-  try {
-    const usuario = await Usuario.findByPk(id);
-    if (!usuario) {
-      return res.status(404).json({ message: 'Usuario no encontrado' });
-    }
-
-    // Cambiar el estado del usuario a 'aprobado'
-    usuario.estado = 'aprobado';
-    await usuario.save();
-
-    // El correo de aprobación está temporalmente suspendido
-    // await enviarCorreo(usuario.email, 'Aprobación de Cuenta', 'Tu cuenta ha sido aprobada', '<h1>Tu cuenta ha sido aprobada</h1>');
-
-    // Enviar la respuesta de éxito
-    res.json({ message: 'Usuario aprobado correctamente', usuario });
-  } catch (error) {
-    // Manejo del error en caso de fallo
-    res.status(500).json({ message: 'Error al aprobar usuario', error });
-  }
-};
-
-
-// Rechazar usuario
-const rechazarUsuario = async (req, res) => {
-  const { id } = req.params;
-  const { motivoRechazo, rechazadoPor } = req.body; // Asegúrate de que se envían estos datos
-
-  try {
-    const usuario = await Usuario.findByPk(id);
-    if (!usuario) {
-      return res.status(404).json({ message: 'Usuario no encontrado' });
-    }
-
-    // Asignar los valores correspondientes
-    usuario.estado = 'rechazado';
-    usuario.motivoRechazo = motivoRechazo; // Asignar el motivo de rechazo
-    usuario.rechazadoPor = rechazadoPor; // Asignar el ID del administrador
-    usuario.fechaRechazo = new Date(); // Asignar la fecha actual de rechazo
-
-    await usuario.save();
-
-    // Enviar correo de rechazo
-    await enviarCorreo(usuario.email, 'Rechazo de Cuenta', 'Tu cuenta ha sido rechazada', '<h1>Tu cuenta ha sido rechazada</h1>');
-
-    console.log(`Usuario con ID ${id} ha sido rechazado por el administrador con ID ${rechazadoPor}`);
-
-    res.json({ message: 'Usuario rechazado correctamente', usuario });
-  } catch (error) {
-    res.status(500).json({ message: 'Error al rechazar usuario', error });
-  }
-};
-
-
-
-
-
-
-// Obtener usuarios pendientes
-// Obtener usuarios pendientes
-const obtenerUsuariosPendientes = async (req, res) => {
-  try {
-    // Consulta para obtener usuarios con estado 'pendiente'
-    const usuariosPendientes = await Usuario.findAll({
-      where: {
-        estado: 'pendiente'  // Consulta directa por el valor exacto del estado
-      }
-    });
-
-    // Verifica si hay usuarios pendientes
-    if (usuariosPendientes.length === 0) {
-      return res.status(404).json({ message: 'No hay usuarios pendientes' });
-    }
-
-    // Devuelve los usuarios pendientes
-    res.json(usuariosPendientes);
-  } catch (error) {
-    console.error('Error al obtener usuarios pendientes:', error); // Imprimir el error en la consola
-    res.status(500).json({ message: 'Error al obtener usuarios pendientes', error: error.message });
-  }
-};
-
-
-
-
-// Registrar usuario por tercero
-const registerUsuarioPorTercero = async (req, res) => {
-  const { dni, cuit, nombre, apellido, email, direccion, password, tipo, razonSocial } = req.body;
-
-  console.log("Datos recibidos en el backend:", req.body);
-
-  // Validación de campos requeridos
-  if (!dni || !cuit || !nombre || !apellido || !email || !direccion || !direccion.calle || !direccion.altura || !direccion.departamento || !password || !tipo) {
-    return res.status(400).json({ message: 'Todos los campos son obligatorios' });
-  }
-
-  // Validación de razón social para tipo jurídico
-  if (tipo === 'juridica' && !razonSocial) {
-    return res.status(400).json({ message: 'La razón social es obligatoria para tipo "juridica"' });
-  }
-
-  // Verificar si el email ya existe
-  const existingUser = await Usuario.findOne({ where: { email } });
-  if (existingUser) {
-    return res.status(400).json({ message: 'El correo electrónico ya está registrado' });
-  }
-
-  // Verificar si el DNI ya existe
-  const existingDni = await Usuario.findOne({ where: { dni } });
-  if (existingDni) {
-    return res.status(400).json({ message: 'El DNI ya está registrado' });
-  }
-
-  try {
-    // Encriptar la contraseña antes de guardarla
-    const hashedPassword = await bcrypt.hash(password, 10);
-
-    // Crear el nuevo usuario
-    const usuario = await Usuario.create({
-      dni,
-      cuit,
-      nombre,
-      apellido,
-      email,
-      direccion: {
-        calle: direccion.calle,
-        numero: direccion.altura,  // Usamos 'altura' como 'numero' para la consistencia
-        departamento: direccion.departamento,
-      },
-      password: hashedPassword, // Guardamos la contraseña encriptada
-      rolDefinitivo: 'usuario',
-      tipo,
-      razonSocial: tipo === 'juridica' ? razonSocial : null,
-    });
-
-    // Responder con los datos del usuario, omitiendo la contraseña
-    res.json({
+    res.status(200).json({
       usuario: {
-        id: usuario.id,
-        dni: usuario.dni,
-        cuit: usuario.cuit,
+        uuid: usuario.uuid,
         nombre: usuario.nombre,
         apellido: usuario.apellido,
         email: usuario.email,
-        direccion: usuario.direccion,
-        tipo: usuario.tipo,
-        razonSocial: usuario.razonSocial,
-      }
+        rolDefinitivo: usuario.rolDefinitivo,
+      },
+      token,
+      refreshToken, // Enviar también el refresh token
     });
   } catch (error) {
-    console.log("Error al registrar usuario por tercero:", error);
-    res.status(500).json({ message: 'Error al registrar usuario por tercero' });
+    console.error('Error en el login:', error.message);
+    res.status(500).json({ message: 'Error interno del servidor.' });
   }
 };
 
@@ -366,154 +128,561 @@ const registerUsuarioPorTercero = async (req, res) => {
 
 
 
+const obtenerUsuarios = async (req, res) => {
+  try {
+    const usuarios = await Usuario.findAll({
+      attributes: ['uuid', 'nombre', 'apellido', 'email', 'dni', 'cuit', 'direccion'],
+    });
+    res.status(200).json(usuarios);
+  } catch (error) {
+    console.error('Error obteniendo usuarios:', error);
+    res.status(500).json({ message: 'Error interno del servidor.' });
+  }
+};
 
-// Completar registro
-const completarRegistro = async (req, res) => {
-  const { id, password } = req.body;
+
+const obtenerCompradores = async (req, res) => {
+  try {
+      const compradores = await Usuario.findAll({
+          where: { tipo: 'comprador' }, // Ajusta esta condición según tus necesidades
+      });
+      res.status(200).json(compradores);
+  } catch (error) {
+      console.error('Error al obtener compradores:', error);
+      res.status(500).json({ message: 'Error al obtener compradores.', error: error.message });
+  }
+};
+
+const registerUsuarioPorTercero = async (req, res) => {
+  const { dni, email, nombre, apellido, tipo, razonSocial, cuit, direccion } = req.body;
+
+  if (!dni || !email || !nombre || !apellido) {
+    return res.status(400).json({
+      mensaje: 'Faltan campos obligatorios. Asegúrate de enviar dni, email, nombre y apellido.',
+    });
+  }
 
   try {
-    const usuario = await Usuario.findByPk(id);
-    if (!usuario) {
-      return res.status(404).json({ message: 'Usuario no encontrado' });
+    const existingUser = await Usuario.findOne({ where: { email } });
+
+    if (existingUser) {
+      // El usuario ya existe, no enviar enlace
+      return res.status(200).json({
+        mensaje: 'El usuario ya existe en el sistema.',
+        usuario: existingUser, // Opcional: devolver datos del usuario existente si lo necesitas
+      });
     }
 
-    if (password) {
-      usuario.password = await bcrypt.hash(password, 10);
+    // Crear un nuevo usuario
+    const nuevoUsuario = await Usuario.create({
+      uuid: uuidv4(),
+      dni,
+      email,
+      nombre,
+      apellido,
+      tipo,
+      razonSocial: tipo === 'juridica' ? razonSocial : null,
+      cuit,
+      direccion,
+      password: await bcrypt.hash('default_password', 10), // Contraseña por defecto
+      estado: 'pendiente',
+      rolDefinitivo: 'usuario',
+    });
+
+    // Generar un token JWT para el nuevo usuario
+    const token = jwt.sign(
+      { id: nuevoUsuario.uuid }, // Payload
+      process.env.JWT_SECRET || 'bienes_muebles', // Clave secreta
+      { expiresIn: '24h' } // Tiempo de expiración
+    );
+
+    const resetLink = `${process.env.FRONTEND_URL}/usuarios/update-account/${token}`;
+
+    const emailBody = `
+      <p>Hola ${nombre},</p>
+      <p>Has sido registrado por un tercero. Para completar tu registro y cambiar tu contraseña, haz clic en el siguiente enlace:</p>
+      <a href="${resetLink}">Completar registro</a>
+      <p>Este enlace es válido por 24 horas.</p>
+    `;
+
+    // Enviar correo al nuevo usuario
+    await enviarCorreo(email, 'Registro exitoso - Completa tu cuenta', emailBody, emailBody);
+
+    res.status(201).json({
+      mensaje: 'Usuario registrado con éxito. Se ha enviado un correo para completar su registro.',
+      usuario: nuevoUsuario,
+    });
+  } catch (error) {
+    console.error('Error al registrar usuario por tercero:', error.message);
+    res.status(500).json({
+      mensaje: 'Error interno al registrar el usuario.',
+      detalles: error.message,
+    });
+  }
+};
+
+
+const updateAccount = async (req, res) => {
+  const { token } = req.params; // Token recibido en la URL
+  const { newPassword, nombre, apellido } = req.body;
+
+  try {
+    // Decodificar el token y verificar si el usuario existe
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const usuario = await Usuario.findOne({ where: { uuid: decoded.id, estado: 'pendiente' } });
+
+    if (!usuario) {
+      return res.status(404).json({ message: 'Usuario no encontrado o ya está activo.' });
+    }
+
+    // Actualizar la información del usuario
+    if (newPassword) {
+      usuario.password = await bcrypt.hash(newPassword, 10);
+    }
+    if (nombre) usuario.nombre = nombre;
+    if (apellido) usuario.apellido = apellido;
+
+    // Cambiar estado a "activo"
+    usuario.estado = 'aprobado';
+
+    await usuario.save();
+
+    res.status(200).json({ message: 'Cuenta actualizada y activada exitosamente.' });
+  } catch (error) {
+    console.error('Error al procesar el token:', error);
+    res.status(400).json({ message: 'Token inválido o expirado.' });
+  }
+};
+
+const resetPassword = async (req, res) => {
+  const { token, newPassword } = req.body;
+
+  try {
+    const passwordResetToken = await PasswordResetToken.findOne({
+      where: { token },
+    });
+
+    if (!passwordResetToken || passwordResetToken.expiresAt < new Date()) {
+      return res.status(400).json({ mensaje: 'El enlace ha expirado o es inválido.' });
+    }
+
+    const user = await Usuario.findByPk(passwordResetToken.userId);
+
+    if (!user) {
+      return res.status(404).json({ mensaje: 'Usuario no encontrado.' });
+    }
+
+    user.password = await bcrypt.hash(newPassword, 10);
+    user.estado = 'activo';
+    await user.save();
+
+    await passwordResetToken.destroy();
+
+    res.status(200).json({ mensaje: 'Contraseña cambiada con éxito.' });
+  } catch (error) {
+    console.error('Error al cambiar contraseña:', error.message);
+    res.status(500).json({ mensaje: 'Error interno.', detalles: error.message });
+  }
+};
+
+
+
+
+const aprobarUsuario = async (req, res) => {
+  const { uuid } = req.params;
+
+  try {
+    const usuario = await Usuario.findOne({ where: { uuid } }); // Cambiado de `findByPk(id)`
+    if (!usuario) {
+      return res.status(404).json({ message: 'Usuario no encontrado' });
     }
 
     usuario.estado = 'aprobado';
     await usuario.save();
 
-    res.json({ message: 'Registro completado correctamente', usuario });
+    res.status(200).json({ message: 'Usuario aprobado correctamente', usuario });
   } catch (error) {
-    res.status(500).json({ message: 'Error al completar el registro', error });
+    console.error('Error al aprobar usuario:', error);
+    res.status(500).json({ message: 'Error al aprobar usuario.', error: error.message });
   }
 };
 
-// Obtener vendedores
-const obtenerVendedores = async (req, res) => {
+
+// Aprobar o rechazar usuarios
+
+const cambiarEstadoUsuario = async (req, res) => {
+  const { uuid } = req.params;
+  const { estado, fechaAprobacion, aprobadoPor, motivoRechazo } = req.body;
+
   try {
-    const vendedores = await Usuario.findAll({ where: { rolDefinitivo: 'vendedor' } });
-    res.json(vendedores);
+    const usuario = await Usuario.findOne({ where: { uuid } });
+
+    if (!usuario) {
+      return res.status(404).json({ message: 'Usuario no encontrado' });
+    }
+
+    usuario.estado = estado;
+
+    if (estado === 'aprobado') {
+      usuario.fechaAprobacion = fechaAprobacion;
+      usuario.aprobadoPor = aprobadoPor;
+
+      try {
+        await enviarCorreo(
+          usuario.email,
+          '¡Tu registro ha sido aprobado!',
+          `Hola ${usuario.nombre}, tu registro ha sido aprobado.`,
+          `<p>Hola <strong>${usuario.nombre}</strong>, tu registro ha sido aprobado.</p>`
+        );
+        console.log('Correo de aprobación enviado correctamente.');
+      } catch (error) {
+        console.error('Error al enviar correo de aprobación:', error.message);
+      }
+    } else if (estado === 'rechazado') {
+      usuario.motivoRechazo = motivoRechazo;
+      usuario.rechazadoPor = aprobadoPor;
+      usuario.fechaRechazo = new Date();
+
+      try {
+        await enviarCorreo(
+          usuario.email,
+          'Tu registro ha sido rechazado',
+          `Hola ${usuario.nombre}, lamentamos informarte que tu registro ha sido rechazado. Motivo: ${motivoRechazo}`,
+          `<p>Hola <strong>${usuario.nombre}</strong>, lamentamos informarte que tu registro ha sido rechazado.<br>Motivo: ${motivoRechazo}</p>`
+        );
+        console.log('Correo de rechazo enviado correctamente.');
+      } catch (error) {
+        console.error('Error al enviar correo de rechazo:', error.message);
+      }
+    }
+
+    await usuario.save();
+
+    res.status(200).json({
+      message: `Usuario ${estado} correctamente`,
+      usuario,
+    });
   } catch (error) {
-    res.status(500).json({ message: 'Error al obtener vendedores', error });
+    console.error('Error al cambiar estado del usuario:', error.message);
+    res.status(500).json({ message: 'Error interno al cambiar estado del usuario.' });
   }
 };
 
-// Obtener compradores
-const obtenerCompradores = async (req, res) => {
+
+
+
+
+// Obtener usuarios por estado
+// Obtener usuarios por estado
+// Obtener usuarios por estado
+const obtenerUsuariosPorEstado = async (req, res) => {
+  const { estado } = req.query;
+
+  if (!estado) {
+    console.error('El parámetro "estado" es obligatorio.');
+    return res.status(400).json({ message: 'El parámetro "estado" es obligatorio.' });
+  }
+
   try {
-    const compradores = await Usuario.findAll({ where: { rolDefinitivo: 'comprador' } });
-    res.json(compradores);
+    // Consultar usuarios con el estado especificado
+    const usuarios = await Usuario.findAll({
+      where: { estado },
+      attributes: [
+        'uuid',
+        'nombre',
+        'apellido',
+        'email',
+        'dni',
+        'direccion',
+        'estado',
+        'rolDefinitivo',
+        'aprobadoPor',
+        'fechaAprobacion',
+        'rechazadoPor',
+        'fechaRechazo',
+        'motivoRechazo',
+        'createdAt',
+        'updatedAt',
+      ],
+    });
+
+    console.log(`Usuarios encontrados con estado "${estado}":`, usuarios.length);
+
+    if (!usuarios.length) {
+      console.log(`No se encontraron usuarios con el estado: ${estado}`);
+      return res.status(200).json([]);
+    }
+
+    // Formatear cada usuario
+    const usuariosFormateados = await Promise.all(
+      usuarios.map(async (usuario) => {
+        let direccionFormateada = null;
+
+        // Intentar parsear la dirección si es una cadena
+        try {
+          direccionFormateada = typeof usuario.direccion === 'string'
+            ? JSON.parse(usuario.direccion)
+            : usuario.direccion;
+        } catch (e) {
+          console.error('Error al parsear dirección:', e);
+          direccionFormateada = usuario.direccion;
+        }
+
+        // Obtener el nombre y apellido del usuario que rechazó
+        let rechazadoPorNombreApellido = usuario.rechazadoPor;
+        if (usuario.rechazadoPor) {
+          const rechazador = await Usuario.findOne({
+            where: { uuid: usuario.rechazadoPor },
+            attributes: ['nombre', 'apellido'],
+          });
+
+          if (rechazador) {
+            rechazadoPorNombreApellido = `${rechazador.nombre} ${rechazador.apellido}`;
+          }
+        }
+
+        // Obtener el nombre y apellido del usuario que aprobó
+        let aprobadoPorNombreApellido = usuario.aprobadoPor;
+        if (usuario.aprobadoPor) {
+          const aprobador = await Usuario.findOne({
+            where: { uuid: usuario.aprobadoPor },
+            attributes: ['nombre', 'apellido'],
+          });
+
+          if (aprobador) {
+            aprobadoPorNombreApellido = `${aprobador.nombre} ${aprobador.apellido}`;
+          }
+        }
+
+        return {
+          ...usuario.toJSON(),
+          direccion: direccionFormateada,
+          rechazadoPor: rechazadoPorNombreApellido,
+          aprobadoPor: aprobadoPorNombreApellido,
+        };
+      })
+    );
+
+    res.status(200).json(usuariosFormateados);
   } catch (error) {
-    res.status(500).json({ message: 'Error al obtener compradores', error });
+    console.error('Error al obtener usuarios por estado:', error.message);
+    res.status(500).json({
+      message: 'Error al obtener usuarios por estado.',
+      detalles: error.message,
+    });
   }
 };
 
-// Actualizar usuario
+
+
 const actualizarUsuario = async (req, res) => {
-  const { id } = req.params;
-  const { nombre, apellido, email, direccion, password, rolDefinitivo } = req.body;
+  const { uuid } = req.params;
+  const { nombre, apellido, email, dni, direccion, contraseña, rol } = req.body;
 
   try {
-      const usuario = await Usuario.findByPk(id);
-      if (!usuario) {
-          return res.status(404).json({ message: 'Usuario no encontrado' });
+    const usuario = await Usuario.findOne({ where: { uuid } });
+    if (!usuario) {
+      return res.status(404).json({ message: 'Usuario no encontrado.' });
+    }
+
+    const cambios = [];
+
+    if (nombre && nombre !== usuario.nombre) {
+      cambios.push({ campo: 'nombre', valor_anterior: usuario.nombre, valor_nuevo: nombre });
+      usuario.nombre = nombre;
+    }
+
+    if (apellido && apellido !== usuario.apellido) {
+      cambios.push({ campo: 'apellido', valor_anterior: usuario.apellido, valor_nuevo: apellido });
+      usuario.apellido = apellido;
+    }
+
+    if (email && email !== usuario.email) {
+      cambios.push({ campo: 'email', valor_anterior: usuario.email, valor_nuevo: email });
+      usuario.email = email;
+    }
+
+    if (dni && dni !== usuario.dni) {
+      cambios.push({ campo: 'dni', valor_anterior: usuario.dni, valor_nuevo: dni });
+      usuario.dni = dni;
+    }
+
+    if (direccion) {
+      const nuevaDireccion = JSON.stringify(direccion);
+      const direccionActual = JSON.stringify(usuario.direccion);
+      if (nuevaDireccion !== direccionActual) {
+        cambios.push({ campo: 'direccion', valor_anterior: direccionActual, valor_nuevo: nuevaDireccion });
+        usuario.direccion = direccion;
       }
+    }
 
-      // Asegurarse de que `direccion` se trate como objeto
-      usuario.direccion = typeof usuario.direccion === 'string' ? JSON.parse(usuario.direccion) : usuario.direccion;
+    if (contraseña) {
+      const bcrypt = require('bcrypt');
+      const hashedPassword = await bcrypt.hash(contraseña, 10);
+      cambios.push({ campo: 'contraseña', valor_anterior: '******', valor_nuevo: '******' });
+      usuario.password = hashedPassword;
+    }
 
-      // Asignar nuevos valores
-      if (nombre) usuario.nombre = nombre;
-      if (apellido) usuario.apellido = apellido;
-      if (email) usuario.email = email;
+    if (rol && rol !== usuario.rolDefinitivo) {
+      cambios.push({ campo: 'rol', valor_anterior: usuario.rolDefinitivo, valor_nuevo: rol });
+      usuario.rolDefinitivo = rol;
+    }
 
-      // Sobrescribir `direccion` solo si es un objeto
-      if (direccion && typeof direccion === 'object') {
-          usuario.direccion = direccion;
-      }
+    await usuario.save();
 
-      // Guardar cambios
-      await usuario.save();
+    // Guardar los cambios en el historial
+    for (const cambio of cambios) {
+      await HistorialCambios.create({
+        usuario_id: uuid,
+        campo: cambio.campo,
+        valor_anterior: cambio.valor_anterior,
+        valor_nuevo: cambio.valor_nuevo,
+      });
+    }
 
-      return res.status(200).json({ message: 'Usuario actualizado exitosamente', data: usuario });
+    res.status(200).json({
+      message: 'Usuario actualizado con éxito.',
+      cambios, // Devuelve el historial de cambios
+      usuario,
+    });
   } catch (error) {
-      return res.status(500).json({ message: 'Error al actualizar el usuario', error: error.message });
+    console.error('Error al actualizar usuario:', error.message);
+    res.status(500).json({ message: 'Error al actualizar usuario.', detalles: error.message });
   }
 };
-
-
 
 
 
 // Eliminar usuario
 const eliminarUsuario = async (req, res) => {
-  const { id } = req.params;
+  const { uuid } = req.params;
 
   try {
-    const usuario = await Usuario.findByPk(id);
+    const usuario = await Usuario.findOne({ where: { uuid } });
     if (!usuario) {
       return res.status(404).json({ message: 'Usuario no encontrado' });
     }
 
     await usuario.destroy();
-
     res.json({ message: 'Usuario eliminado correctamente' });
   } catch (error) {
-    res.status(500).json({ message: 'Error al eliminar usuario', error });
+    console.error('Error al eliminar usuario:', error);
+    res.status(500).json({ message: 'Error al eliminar usuario.', error: error.message });
   }
 };
 
-// Obtener compras y ventas por usuario
-// Obtener compras y ventas por usuario
-const obtenerComprasVentasPorUsuario = async (req, res) => {
+const obtenerUsuarioPorId = async (req, res) => {
+  const { uuid } = req.params;
+
+  try {
+    const usuario = await Usuario.findOne({ where: { uuid } }); // Cambiado de `findByPk(id)`
+    if (!usuario) {
+      return res.status(404).json({ message: 'Usuario no encontrado.' });
+    }
+
+    res.json(usuario);
+  } catch (error) {
+    console.error('Error al obtener usuario por ID:', error);
+    res.status(500).json({ message: 'Error al obtener usuario.', error: error.message });
+  }
+};
+
+const obtenerUsuariosPendientes = async (req, res) => {
+  try {
+    const usuarios = await Usuario.findAll({ where: { estado: 'pendiente' } });
+    res.json(usuarios);
+  } catch (error) {
+    console.error('Error al obtener usuarios pendientes:', error);
+    res.status(500).json({ message: 'Error al obtener usuarios pendientes.', error: error.message });
+  }
+};
+
+const asignarRolTemporal = async (req, res) => {
+  const { uuid } = req.params;
+  const { rolTemporal } = req.body;
+
+  try {
+    const usuario = await Usuario.findByPk(id);
+    if (!usuario) {
+      return res.status(404).json({ message: 'Usuario no encontrado.' });
+    }
+
+    usuario.rolTemporal = rolTemporal;
+    await usuario.save();
+
+    res.json({ message: 'Rol temporal asignado correctamente.', usuario });
+  } catch (error) {
+    console.error('Error al asignar rol temporal:', error);
+    res.status(500).json({ message: 'Error al asignar rol temporal.', error: error.message });
+  }
+};
+
+const obtenerRolTemporal = async (req, res) => {
   const { id } = req.params;
 
   try {
-    const usuario = await Usuario.findByPk(id, {
-      include: [
-        {
-          model: Transaccion,
-          as: 'compras', // Cambia el alias según la asociación en tu modelo
-          include: [
-            {
-              model: Bien,
-              as: 'bien', // Usa el alias definido en la asociación
-              attributes: ['uuid', 'descripcion', 'precio', 'fecha'] // Cambia 'id' a 'uuid'
-            }
-          ],
-          attributes: ['id', 'compradorId', 'vendedorId', 'fecha'] // Agrega atributos relevantes de la transacción
-        },
-        {
-          model: Transaccion,
-          as: 'ventas', // Cambia el alias según la asociación en tu modelo
-          include: [
-            {
-              model: Bien,
-              as: 'bien', // Usa el alias definido en la asociación
-              attributes: ['uuid', 'descripcion', 'precio', 'fecha'] // Cambia 'id' a 'uuid'
-            }
-          ],
-          attributes: ['id', 'compradorId', 'vendedorId', 'fecha'] // Agrega atributos relevantes de la transacción
-        }
-      ]
-    });
-
+    const usuario = await Usuario.findByPk(id, { attributes: ['rolTemporal'] });
     if (!usuario) {
-      return res.status(404).json({ message: 'Usuario no encontrado' });
+      return res.status(404).json({ message: 'Usuario no encontrado.' });
     }
 
-    // Si el usuario tiene transacciones, las incluirá en la respuesta
-    res.json(usuario);
+    res.json({ rolTemporal: usuario.rolTemporal });
   } catch (error) {
-    console.error('Error al obtener compras y ventas:', error);
-    res.status(500).json({ message: 'Error al obtener compras y ventas', error: error.message });
+    console.error('Error al obtener rol temporal:', error);
+    res.status(500).json({ message: 'Error al obtener rol temporal.', error: error.message });
+  }
+};
+
+const checkExistingUser = async (req, res) => {
+  const { dni, email } = req.body;
+
+  try {
+    const usuario = await Usuario.findOne({
+      where: {
+        [Op.or]: [{ dni }, { email }],
+      },
+    });
+
+    if (usuario) {
+      return res.status(200).json({
+        existe: true,
+        usuario,
+        mensaje: 'El usuario ya existe.',
+      });
+    }
+
+    return res.status(200).json({
+      existe: false,
+      mensaje: 'Usuario no encontrado.',
+    });
+  } catch (error) {
+    console.error('Error en checkExistingUser:', error.message);
+    res.status(500).json({ message: 'Error al verificar el usuario.', detalles: error.message });
   }
 };
 
 
-// Obtener detalles de usuario
+
+
+const removerRolTemporal = async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    const usuario = await Usuario.findByPk(id);
+    if (!usuario) {
+      return res.status(404).json({ message: 'Usuario no encontrado.' });
+    }
+
+    usuario.rolTemporal = null;
+    await usuario.save();
+
+    res.json({ message: 'Rol temporal removido correctamente.', usuario });
+  } catch (error) {
+    console.error('Error al remover rol temporal:', error);
+    res.status(500).json({ message: 'Error al remover rol temporal.', error: error.message });
+  }
+};
+
 const obtenerUsuarioDetalles = async (req, res) => {
   const { id } = req.params;
 
@@ -523,271 +692,92 @@ const obtenerUsuarioDetalles = async (req, res) => {
         {
           model: Bien,
           as: 'bienesComprados',
-          attributes: ['uuid', 'descripcion', 'precio', 'fecha'] // Cambié 'id' por 'uuid'
+          attributes: ['descripcion', 'marca', 'modelo'],
         },
         {
           model: Bien,
           as: 'bienesVendidos',
-          attributes: ['uuid', 'descripcion', 'precio', 'fecha'] // Cambié 'id' por 'uuid'
-        }
-      ]
+          attributes: ['descripcion', 'marca', 'modelo'],
+        },
+      ],
     });
 
     if (!usuario) {
-      return res.status(404).json({ message: 'Usuario no encontrado' });
+      return res.status(404).json({ message: 'Usuario no encontrado.' });
     }
 
     res.json(usuario);
   } catch (error) {
     console.error('Error al obtener detalles del usuario:', error);
-    res.status(500).json({ message: 'Error al obtener detalles del usuario', error: error.message });
+    res.status(500).json({ message: 'Error al obtener detalles del usuario.', error: error.message });
   }
 };
 
+// controllers/usuarioController.js
+const actualizarRolUsuario = async (req, res) => {
+  const { uuid } = req.params;
+  const { rolDefinitivo } = req.body;
 
+  console.log('UUID recibido:', uuid);
+  console.log('Rol recibido:', rolDefinitivo);
 
-const obtenerComprasVentas = async (req, res) => {
-  const { id } = req.params;
-
-  try {
-    const usuario = await Usuario.findByPk(id, {
-      include: [
-        {
-          model: Bien,
-          as: 'bienesComprados', // Asegúrate que el alias coincida con tu modelo
-          attributes: ['uuid', 'descripcion', 'precio', 'fecha']
-        },
-        {
-          model: Bien,
-          as: 'bienesVendidos', // Asegúrate que el alias coincida con tu modelo
-          attributes: ['uuid', 'descripcion', 'precio', 'fecha']
-        }
-      ]
-    });
-
-    if (!usuario) {
-      return res.status(404).json({ message: 'Usuario no encontrado' });
-    }
-
-    const response = {
-      id: usuario.id,
-      nombre: usuario.nombre,
-      apellido: usuario.apellido,
-      dni: usuario.dni,
-      cuit: usuario.cuit,
-      email: usuario.email,
-      direccion: usuario.direccion,
-      bienesComprados: usuario.bienesComprados,
-      bienesVendidos: usuario.bienesVendidos,
-    };
-
-    res.json(response);
-  } catch (error) {
-    console.error('Error al obtener compras y ventas:', error);
-    res.status(500).json({ message: 'Error al obtener compras y ventas', error: error.message });
-  }
-};
-
-
-// Asignar rol temporal
-const asignarRolTemporal = async (req, res) => {
-  const { id } = req.params;
-  const { rolTemporal } = req.body;
-
-  if (!rolTemporal) {
-    return res.status(400).json({ message: 'El rol temporal es obligatorio' });
+  const rolesValidos = ['admin', 'usuario', 'moderador'];
+  if (!rolDefinitivo || !rolesValidos.includes(rolDefinitivo)) {
+    return res.status(400).json({ message: 'Rol definitivo válido es obligatorio.' });
   }
 
   try {
-    const usuario = await Usuario.findByPk(id);
+    // Buscar el usuario por UUID
+    const usuario = await Usuario.findOne({ where: { uuid } });
     if (!usuario) {
+      console.log(`Usuario no encontrado con UUID: ${uuid}`);
       return res.status(404).json({ message: 'Usuario no encontrado' });
     }
 
-    usuario.rolTemporal = rolTemporal;
+    // Verificar el rol actual antes de actualizar
+    console.log('Rol actual antes de actualizar:', usuario.rolDefinitivo);
+
+    // Actualizar el rol definitivo
+    usuario.rolDefinitivo = rolDefinitivo;
     await usuario.save();
 
-    res.json({ message: 'Rol temporal asignado correctamente', usuario });
-  } catch (error) {
-    res.status(500).json({ message: 'Error al asignar rol temporal', error });
-  }
-};
+    // Verificar el rol después de actualizar
+    console.log('Rol actual después de actualizar:', usuario.rolDefinitivo);
 
-// Controlador para obtener el rol temporal de un usuario
-const obtenerRolTemporal = async (req, res) => {
-  const { id } = req.params;
-
-  try {
-    const usuario = await Usuario.findByPk(id, {
-      attributes: ['rolTemporal']
-    });
-
-    if (!usuario) {
-      return res.status(404).json({ message: 'Usuario no encontrado' });
-    }
-
-    res.json({ rolTemporal: usuario.rolTemporal });
-  } catch (error) {
-    res.status(500).json({ message: 'Error al obtener rol temporal del usuario', error });
-  }
-};
-
-const removerRolTemporal = async (req, res) => {
-  try {
-    const userId = req.params.id;
-
-    // Buscar el usuario por su ID
-    const usuario = await Usuario.findByPk(userId);
-
-    if (!usuario) {
-      return res.status(404).json({ message: 'Usuario no encontrado' });
-    }
-
-    // Remover el rol temporal del usuario
-    usuario.rolTemporal = null;
-
-    // Guardar los cambios en la base de datos
-    await usuario.save();
-
-    // Responder con un mensaje de éxito
-    res.status(200).json({ message: 'Rol temporal removido', usuario });
-  } catch (error) {
-    console.error('Error al remover el rol temporal:', error);
-    res.status(500).json({ message: 'Error al remover el rol temporal', error });
-  }
-};
-
-const cambiarRol = async (req, res) => {
-  const { id } = req.params;  // ID del usuario
-  const { nuevoRol } = req.body;  // Nuevo rol a asignar
-
-  try {
-      const usuario = await Usuario.findByPk(id);
-
-      if (!usuario) {
-          return res.status(404).json({ message: 'Usuario no encontrado' });
-      }
-
-      usuario.rolDefinitivo = nuevoRol; // Actualizamos el rol
-      await usuario.save();
-
-      res.json({ message: 'Rol del usuario actualizado correctamente', usuario });
-  } catch (error) {
-      console.error('Error actualizando el rol:', error);
-      res.status(500).json({ message: 'Error al actualizar el rol del usuario', error });
-  }
-};
-
-
-
-const obtenerUsuariosAprobados = async (req, res) => {
-  try {
-    // Consulta para obtener usuarios con estado 'aprobado'
-    const usuariosAprobados = await Usuario.findAll({
-      where: {
-        estado: 'aprobado' // Asegúrate de que el estado sea una cadena
-      }
-    });
-
-    // Verifica si hay usuarios aprobados
-    if (usuariosAprobados.length === 0) {
-      return res.status(404).json({ message: 'No se encontraron usuarios aprobados' });
-    }
-
-    // Devuelve los usuarios aprobados
-    res.status(200).json(usuariosAprobados);
-  } catch (error) {
-    console.error('Error al obtener usuarios aprobados:', error);
-    res.status(500).json({ message: 'Error al obtener usuarios aprobados' });
-  }
-};
-
-// Controller para obtener usuarios rechazados
-// Controller para obtener usuarios rechazados
-const obtenerUsuariosRechazados = async (req, res) => {
-  try {
-    // Consulta para obtener usuarios con estado 'rechazado'
-    const usuariosRechazados = await Usuario.findAll({
-      where: {
-        estado: 'rechazado' // Usa el valor como string
-      }
-    });
-
-    // Verifica si hay usuarios rechazados
-    if (usuariosRechazados.length === 0) {
-      return res.status(404).json({ message: 'No se encontraron usuarios rechazados' });
-    }
-
-    // Devuelve los usuarios rechazados, incluyendo toda la información
-    const usuariosConInfoCompleta = usuariosRechazados.map(usuario => ({
-      id: usuario.id,
-      nombre: usuario.nombre,
-      apellido: usuario.apellido,
-      dni: usuario.dni,
-      cuit: usuario.cuit,
-      email: usuario.email,
-      password: usuario.password,
-      direccion: usuario.direccion,
-      rolTemporal: usuario.rolTemporal,
-      rolDefinitivo: usuario.rolDefinitivo,
-      tipo: usuario.tipo,
-      estado: usuario.estado,
-      motivoRechazo: usuario.motivoRechazo, // Asegúrate de que este campo esté definido en tu modelo
-      rechazadoPor: usuario.rechazadoPor,   // Incluye el ID del admin que rechazó
-      fechaRechazo: usuario.fechaRechazo    // Incluye la fecha de rechazo
-    }));
-
-    res.status(200).json(usuariosConInfoCompleta);
-  } catch (error) {
-    console.error('Error al obtener usuarios rechazados:', error);
-    res.status(500).json({ message: 'Error al obtener usuarios rechazados' });
-  }
-};
-
-const verificarUsuarioExistente = async (req, res) => {
-  try {
-    const { nombre, apellido, dni, cuit, email } = req.body;
-
-    // Verificar que los campos requeridos no sean undefined
-    if (!dni || !email) {
-      return res.status(400).json({ mensaje: 'DNI y email son obligatorios.' });
-    }
-
-    const usuarioExistente = await Usuario.findOne({
-      where: {
-        [Op.or]: [
-          { email: email },
-          { dni: dni },
-        ],
+    // Devolver el usuario actualizado
+    res.json({
+      message: 'Rol del usuario actualizado correctamente',
+      usuario: {
+        uuid: usuario.uuid,
+        nombre: usuario.nombre,
+        apellido: usuario.apellido,
+        rolDefinitivo: usuario.rolDefinitivo, // Aquí está el rol actualizado
       },
     });
-
-    if (usuarioExistente) {
-      const inconsistencias = [];
-      if (usuarioExistente.nombre && nombre && usuarioExistente.nombre !== nombre) inconsistencias.push('nombre');
-      if (usuarioExistente.apellido && apellido && usuarioExistente.apellido !== apellido) inconsistencias.push('apellido');
-      if (usuarioExistente.dni && dni && usuarioExistente.dni !== dni) inconsistencias.push('dni');
-      if (usuarioExistente.cuit && cuit && usuarioExistente.cuit !== cuit) inconsistencias.push('cuit');
-
-      if (inconsistencias.length > 0) {
-        return res.status(200).json({ existe: true, mensaje: 'Datos inconsistentes', inconsistencias, usuario: usuarioExistente });
-      } else {
-        return res.status(200).json({ existe: true, usuario: usuarioExistente });
-      }
-    }
-
-    return res.status(200).json({ existe: false, mensaje: 'Usuario no encontrado' });
   } catch (error) {
-    console.error('Error en verificarUsuarioExistente:', error);
-    return res.status(500).json({ mensaje: 'Error en el servidor' });
+    console.error('Error al actualizar rol del usuario:', error);
+    res.status(500).json({ message: 'Error al actualizar rol del usuario.' });
   }
 };
 
 
 
+const obtenerUsuarioPorDni = async (req, res) => {
+  const { dni } = req.params;
 
+  try {
+    const usuario = await Usuario.findOne({ where: { dni } });
 
+    if (!usuario) {
+      return res.status(404).json({ message: 'Usuario no encontrado.' });
+    }
 
+    res.status(200).json(usuario);
+  } catch (error) {
+    console.error('Error al obtener usuario por DNI:', error);
+    res.status(500).json({ message: 'Error al obtener usuario.', error: error.message });
+  }
+};
 
 
 
@@ -796,28 +786,24 @@ const verificarUsuarioExistente = async (req, res) => {
 
 module.exports = {
   crearUsuario,
-  loginUsuario,
-  obtenerUsuarios,
-  obtenerUsuarioPorId,
-  obtenerUsuarioPorDni,
-  aprobarUsuario,
-  rechazarUsuario,
-  obtenerUsuariosPendientes,
-  registerUsuarioPorTercero,
-  completarRegistro,
-  obtenerVendedores,
-  obtenerCompradores,
+  login,
+  cambiarEstadoUsuario, // Incluye la aprobación y rechazo de usuarios
+  obtenerUsuariosPorEstado, // Para obtener usuarios aprobados, rechazados, pendientes, etc.
   actualizarUsuario,
   eliminarUsuario,
-  obtenerUsuarioDetalles,
-  obtenerComprasVentasPorUsuario,
-  obtenerComprasVentas,
-  asignarRolTemporal,
-  obtenerRolTemporal,
-  obtenerUsuariosAprobados,
-  removerRolTemporal,
-  cambiarRol,
-  obtenerUsuariosRechazados,
-  verificarUsuarioExistente,
-
+  obtenerUsuarios, // Obtener todos los usuarios
+  obtenerUsuarioPorId, // Obtener un usuario por su ID
+  obtenerUsuarioPorDni, // Obtener un usuario por su DNI
+  registerUsuarioPorTercero, // Registrar un usuario a través de terceros
+  obtenerUsuarioDetalles, // Obtener detalles de un usuario autenticado
+  obtenerCompradores, // Obtener compradores
+  obtenerUsuariosPendientes, // Obtener usuarios pendientes
+  asignarRolTemporal, // Asignar rol temporal a un usuario
+  obtenerRolTemporal, // Obtener rol temporal de un usuario
+  removerRolTemporal, // Remover rol temporal de un usuario
+  actualizarRolUsuario, // Cambiar el rol definitivo de un usuario
+  checkExistingUser, // Verificar si un usuario existe
+  resetPassword,
+  updateAccount,
 };
+

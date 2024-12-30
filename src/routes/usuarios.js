@@ -1,76 +1,281 @@
 const express = require('express');
 const router = express.Router();
+const { Usuario } = require('../models'); // Ajusta la ruta según tu estructura de archivos
+const jwt = require('jsonwebtoken'); // Importación necesaria
+const bcrypt = require('bcryptjs');
+require('dotenv').config();
+
+
 const usuarioController = require('../controllers/usuariosController');
+const { validarCampos } = require('../utils/validationUtils');
 const { verifyToken, verificarPermisos } = require('../middlewares/authMiddleware');
 
-// Ruta para registrar un usuario
-router.post('/register', usuarioController.crearUsuario);
+const secretKey = process.env.SECRET_KEY || 'bienes_muebles'; // Usa la clave secreta de .env
 
-// Ruta para login
-router.post('/login', usuarioController.loginUsuario);
 
-// Ruta para obtener todos los usuarios (protegida y solo accesible para administrador o moderador)
-router.get('/', verifyToken, verificarPermisos(['administrador', 'moderador',]), usuarioController.obtenerUsuarios);
 
-// Ruta para obtener un usuario por DNI (protegida y accesible solo para administrador)
-router.get('/dni', verifyToken, verificarPermisos(['administrador', 'moderador']), usuarioController.obtenerUsuarioPorDni);
+// Rutas de usuario
+router.post(
+  '/register',
+  validarCampos(['nombre', 'apellido', 'email', 'password', 'tipo', 'direccion']), // Valida dirección, pero no barrio
+  usuarioController.crearUsuario
+);
 
-// Ruta para registrar usuario por tercero
+
+router.post('/login', usuarioController.login);
+
+router.post('/refresh', (req, res) => {
+  const { refreshToken } = req.body;
+
+  if (!refreshToken) return res.status(401).json({ message: 'Refresh token no proporcionado.' });
+
+  try {
+    const decoded = jwt.verify(refreshToken, process.env.REFRESH_SECRET || 'refresh_bienes');
+
+    const newAccessToken = jwt.sign(
+      { uuid: decoded.uuid },
+      process.env.SECRET_KEY || 'bienes_muebles',
+      { expiresIn: '1h' }
+    );
+
+    res.status(200).json({ accessToken: newAccessToken });
+  } catch (error) {
+    return res.status(403).json({ message: 'Refresh token inválido o expirado.' });
+  }
+});
+
+
+router.get(
+  '/',
+  verifyToken,
+  verificarPermisos(['admin']), // Solo usuarios con rol "admin" pueden acceder
+  usuarioController.obtenerUsuarios
+);
+router.get('/usuarios', verifyToken, verificarPermisos(['admin', 'moderador']), async (req, res) => {
+  const { nombre, email, dni, estado, page = 1, limit = 10 } = req.query;
+
+  try {
+    const whereClause = {};
+
+    if (nombre) whereClause.nombre = { [Op.like]: `%${nombre}%` };
+    if (email) whereClause.email = { [Op.like]: `%${email}%` };
+    if (dni) whereClause.dni = dni;
+    if (estado) whereClause.estado = estado;
+
+    const offset = (page - 1) * limit;
+    const usuarios = await Usuario.findAndCountAll({
+      where: whereClause,
+      limit: parseInt(limit),
+      offset: parseInt(offset),
+    });
+
+    res.json({ 
+      total: usuarios.count, 
+      data: usuarios.rows, 
+      page, 
+      pages: Math.ceil(usuarios.count / limit) 
+    });
+  } catch (error) {
+    console.error('Error al filtrar usuarios:', error);
+    res.status(500).json({ message: 'Error al filtrar usuarios.' });
+  }
+});
+
+router.get('/historial-cambios', async (req, res) => {
+  try {
+    const historial = await HistorialCambios.findAll({ order: [['fecha', 'DESC']] });
+    res.status(200).json(historial);
+  } catch (error) {
+    console.error('Error al obtener historial:', error.message);
+    res.status(500).json({ message: 'Error al obtener historial.' });
+  }
+});
+
+router.get('/dni', verifyToken, verificarPermisos(['admin', 'moderador']), usuarioController.obtenerUsuarioPorDni);
+
 router.post('/register-usuario-por-tercero', usuarioController.registerUsuarioPorTercero);
 
-// Ruta para obtener los detalles del usuario autenticado (protegida, accesible para administrador y moderador)
-router.get('/usuario/detalles', verifyToken, verificarPermisos(['administrador', 'moderador']), usuarioController.obtenerUsuarioDetalles);
+router.post('/update-account/:token', async (req, res) => {
+  const { token } = req.params; // Token recibido en la URL
+  const { newPassword, nombre, apellido } = req.body;
 
-// Ruta para obtener todos los compradores (protegida y accesible solo para administrador)
-router.get('/compradores', verifyToken, verificarPermisos(['administrador', 'moderador']), usuarioController.obtenerCompradores);
+  console.log('Token recibido:', token);
+  console.log('Datos recibidos:', { newPassword, nombre, apellido });
 
-// Ruta para obtener usuarios pendientes (protegida y accesible solo para administrador)
-router.get('/usuarios/pendientes', verifyToken, verificarPermisos(['administrador', 'moderador']), usuarioController.obtenerUsuariosPendientes);
+  try {
+    // Verificamos el token recibido
+    const decoded = jwt.verify(token, 'bienes_muebles');  // Usando una clave secreta hardcodeada
 
-// Ruta para obtener un usuario por su ID (protegida, accesible para administrador y moderador)
-router.get('/:id', verifyToken, verificarPermisos(['administrador', 'moderador']), usuarioController.obtenerUsuarioPorId);
+    console.log('Token decodificado:', decoded);
 
-// Ruta para actualizar un usuario por su ID (protegida, accesible para administrador y usuario)
-router.put('/:id', verifyToken, verificarPermisos(['administrador','usuario' ]), usuarioController.actualizarUsuario);
+    // Buscamos al usuario en la base de datos usando el UUID decodificado
+    const usuario = await Usuario.findOne({ where: { uuid: decoded.id } });
 
-// Ruta para obtener detalles del usuario por su ID (protegida, accesible para administrador y moderador)
-router.get('/:id/detalles', verifyToken, verificarPermisos(['administrador', 'moderador']), usuarioController.obtenerUsuarioDetalles);
+    if (!usuario) {
+      return res.status(404).json({ mensaje: 'Usuario no encontrado.' });
+    }
 
-// Ruta para eliminar un usuario por su ID (protegida y accesible solo para administrador)
-router.delete('/:id', verifyToken, verificarPermisos(['administrador']), usuarioController.eliminarUsuario);
+    // Si el usuario está en estado pendiente, no permitimos que se apruebe automáticamente
+    if (usuario.estado === 'pendiente') {
+      console.log('El usuario está en estado pendiente, no se cambiará a aprobado automáticamente.');
+    }
 
-// Ruta para asignar un rol temporal (protegida y accesible solo para administrador)
-router.put('/:id/rolTemporal', verifyToken, verificarPermisos(['administrador']), usuarioController.asignarRolTemporal);
+    // Actualizar los datos del usuario
+    if (newPassword) {
+      usuario.password = bcrypt.hashSync(newPassword, 10); // Hasheamos la nueva contraseña
+    }
+    if (nombre) usuario.nombre = nombre;
+    if (apellido) usuario.apellido = apellido;
 
-// Ruta para obtener el rol temporal de un usuario (protegida y accesible solo para administrador y moderador)
-router.get('/:id/rolTemporal', verifyToken, verificarPermisos(['administrador', 'moderador']), usuarioController.obtenerRolTemporal);
+    // No cambiamos el estado a 'aprobado', permaneciendo en 'pendiente'
+    usuario.estado = 'pendiente';  // Mantenemos el estado como 'pendiente'
 
-// Ruta para remover el rol temporal de un usuario (protegida y accesible solo para administrador)
-router.delete('/:id/rolTemporal', verifyToken, verificarPermisos(['administrador']), usuarioController.removerRolTemporal);
+    await usuario.save(); // Guardamos los cambios en la base de datos
 
-// Ruta para obtener compras y ventas asociadas a un usuario (protegida y accesible para administrador y moderador)
-router.get('/:id/compras-ventas', verifyToken, verificarPermisos(['administrador', 'moderador']), usuarioController.obtenerComprasVentasPorUsuario);
+    return res.json({ mensaje: 'Cuenta actualizada exitosamente. El estado sigue siendo pendiente.' });
+  } catch (error) {
+    console.error('Error al procesar el token:', error.message);
+    return res.status(400).json({ mensaje: 'Token inválido o expirado.' });
+  }
+});
 
-// Ruta para obtener todas las compras y ventas (protegida y accesible para administrador y moderador)
-router.get('/compras-ventas', verifyToken, verificarPermisos(['administrador', 'moderador']), usuarioController.obtenerComprasVentas);
 
-// Ruta para aprobar un usuario (protegida y accesible solo para administrador)
-router.put('/:id/aprobar', verifyToken, verificarPermisos(['administrador']), usuarioController.aprobarUsuario);
 
-// Ruta para rechazar un usuario (protegida y accesible solo para administrador)
-router.put('/:id/rechazar', verifyToken, verificarPermisos(['administrador']), usuarioController.rechazarUsuario);
 
-// Ruta para obtener todos los usuarios aprobados (protegida y accesible solo para administrador)
-router.get('/usuarios/aprobados', verifyToken, verificarPermisos(['administrador', 'moderador']), usuarioController.obtenerUsuariosAprobados);
 
-// Ruta para obtener todos los usuarios rechazados (protegida y accesible solo para administrador)
-router.get('/usuarios/rechazados', verifyToken, verificarPermisos(['administrador', 'moderador']), usuarioController.obtenerUsuariosRechazados);
+router.get('/usuario/detalles', verifyToken, verificarPermisos(['admin', 'moderador']), usuarioController.obtenerUsuarioDetalles);
 
-// Ruta para cambiar el rol del usuario a 'administrador' (protegida y accesible solo para administrador)
-router.patch('/usuarios/:id/rol', verifyToken, verificarPermisos(['administrador']), usuarioController.cambiarRol);
+router.get('/compradores', verifyToken, verificarPermisos(['admin', 'moderador']), usuarioController.obtenerCompradores);
 
-// Ruta para verificar si el usuario existe
-router.post('/check', usuarioController.verificarUsuarioExistente);
+router.get('/usuarios/pendientes', verifyToken, verificarPermisos(['admin', 'moderador']), usuarioController.obtenerUsuariosPendientes);
+
+router.get('/:uuid', verifyToken, verificarPermisos(['admin', 'moderador']), usuarioController.obtenerUsuarioPorId);
+
+router.put('/:uuid', verifyToken, verificarPermisos(['admin', 'usuario']), usuarioController.actualizarUsuario);
+
+router.delete('/:uuid', verifyToken, verificarPermisos(['admin']), usuarioController.eliminarUsuario);
+
+router.put('/:uuid/rolTemporal', verifyToken, verificarPermisos(['admin']), usuarioController.asignarRolTemporal);
+
+router.get('/:uuid/rolTemporal', verifyToken, verificarPermisos(['admin', 'moderador']), usuarioController.obtenerRolTemporal);
+
+router.delete('/:uuid/rolTemporal', verifyToken, verificarPermisos(['admin']), usuarioController.removerRolTemporal);
+
+// Ruta para aprobar un usuario
+router.put('/:uuid/aprobar', verifyToken, verificarPermisos(['admin']), async (req, res) => {
+  console.log('Datos recibidos en la ruta:', req.body);
+
+  if (!req.body.aprobadoPor) {
+      return res.status(400).json({ message: 'El campo aprobadoPor es obligatorio.' });
+  }
+
+  req.body.estado = 'aprobado';
+  await usuarioController.cambiarEstadoUsuario(req, res);
+});
+
+
+// Ruta para rechazar un usuario
+router.put('/:uuid/rechazar', verifyToken, verificarPermisos(['admin']), async (req, res) => {
+  const { uuid } = req.params;
+  const { fechaRechazo, rechazadoPor, motivoRechazo } = req.body;
+
+  try {
+      const usuario = await Usuario.findOne({ where: { uuid } });
+
+      if (!usuario) {
+          return res.status(404).json({ message: 'Usuario no encontrado' });
+      }
+
+      usuario.estado = 'rechazado';
+      usuario.fechaRechazo = fechaRechazo;
+      usuario.rechazadoPor = rechazadoPor;
+      usuario.motivoRechazo = motivoRechazo;
+
+      await usuario.save();
+
+      res.status(200).json({
+          message: 'Usuario rechazado correctamente',
+          usuario,
+      });
+  } catch (error) {
+      console.error('Error al rechazar usuario:', error);
+      res.status(500).json({ message: 'Error interno al rechazar usuario.' });
+  }
+});
+
+
+// Ruta para obtener usuarios aprobados
+router.get('/usuarios/aprobados', verifyToken, verificarPermisos(['admin', 'moderador']), async (req, res) => {
+  req.query.estado = 'aprobado'; // Filtro correcto
+  await usuarioController.obtenerUsuariosPorEstado(req, res);
+});
+
+
+
+// Ruta para actualizar el rol del usuario
+router.patch('/usuarios/:uuid/rol', usuarioController.actualizarRolUsuario);
+
+
+// Ruta para obtener usuarios rechazados
+router.get('/usuarios/rechazados', verifyToken, verificarPermisos(['admin', 'moderador']), async (req, res) => {
+  req.query.estado = 'rechazado';
+  await usuarioController.obtenerUsuariosPorEstado(req, res);
+});
+
+router.patch('/usuarios/:uuid/estado', usuarioController.cambiarEstadoUsuario);
+
+router.patch('/usuarios/:uuid', usuarioController.actualizarUsuario);
+
+
+
+router.post('/check', usuarioController.checkExistingUser);
+
+router.get('/:uuid/stock', verifyToken, verificarPermisos(['admin', 'usuario']), async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    const stocks = await StockUsuario.findAll({
+      where: { usuarioId: id },
+      include: [{ model: Bien, as: 'bien' }],
+    });
+
+    res.status(200).json({
+      success: true,
+      stocks,
+    });
+  } catch (error) {
+    console.error('Error al obtener stock del usuario:', error);
+    res.status(500).json({ error: 'Error al procesar la solicitud.' });
+  }
+});
+
+router.put('/:uuid/stock', verifyToken, verificarPermisos(['admin']), async (req, res) => {
+  const { id } = req.params;
+  const { bienId, cantidad } = req.body;
+
+  try {
+    const stock = await StockUsuario.findOne({
+      where: { usuarioId: id, bienId },
+    });
+
+    if (!stock) {
+      return res.status(404).json({ error: 'Stock no encontrado.' });
+    }
+
+    stock.cantidad = cantidad;
+    await stock.save();
+
+    res.status(200).json({
+      success: true,
+      message: 'Stock actualizado con éxito.',
+      stock,
+    });
+  } catch (error) {
+    console.error('Error al actualizar stock del usuario:', error);
+    res.status(500).json({ error: 'Error al procesar la solicitud.' });
+  }
+});
+
+
 
 module.exports = router;
-

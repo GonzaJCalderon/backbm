@@ -1,152 +1,106 @@
-// Importar dependencias
 const express = require('express');
 const cors = require('cors');
 const cookieParser = require('cookie-parser');
-const sequelize = require('./src/config/db'); // Configuración de Sequelize
 const path = require('path');
-const cloudinary = require('cloudinary').v2;
-const multer = require('multer');
-const { verifyToken, verificarPermisos } = require('./src/middlewares/authMiddleware'); // Importación de middlewares
-
-// Configuración de Cloudinary
-cloudinary.config({
-  cloud_name: 'dtx5ziooo',
-  api_key: '154721198775314',
-  api_secret: '4HXf6T4SIh_Z5RjmeJtmM6hEYdk'
-});
-
-// Crear función para cargar imágenes a Cloudinary
-const uploadFileToCloudinary = async (file) => {
-  try {
-    const result = await cloudinary.uploader.upload(file.path, {
-      folder: 'bienes_muebles', // O el nombre de la carpeta que prefieras
-      use_filename: true,
-      unique_filename: false,
-      resource_type: 'auto' // Detecta automáticamente el tipo de archivo
-    });
-    return result.secure_url; // Devuelve la URL segura de la imagen subida
-  } catch (error) {
-    throw new Error('Error al subir la imagen a Cloudinary');
-  }
-};
-
-// Importar modelos
-const { Usuario, Bien, Transaccion } = require('./src/models');
+const { sequelize, Usuario, Bien, Stock, Transaccion, DetallesBien, HistorialCambios, PasswordResetToken } = require('./src/models'); // Importar modelos configurados
+require('dotenv').config();
 
 const app = express();
 const PORT = process.env.PORT || 5005;
 
 // Configuración de CORS
 const corsOptions = {
-  origin: [
-    'http://localhost:3000',
-  ],
+  origin: ['http://localhost:3000', 'http://localhost:5005', 'http://10.100.1.80', ],
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Propietario-UUID'], // Agregar aquí el encabezado personalizado
   credentials: true,
 };
-
 app.use(cors(corsOptions));
 
-// Middleware para analizar el cuerpo de las solicitudes JSON
+// Middlewares básicos
 app.use(express.json());
-// Middleware para analizar el cuerpo de las solicitudes URL-encoded
 app.use(express.urlencoded({ extended: true }));
-
-// Configuración de cookie-parser
 app.use(cookieParser());
+try {
+  console.log('Cargando rutas de bienes...');
+  app.use('/bienes', require('./src/routes/bienes'));
 
-// Servir la carpeta 'uploads' públicamente
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+  console.log('Cargando rutas de usuarios...');
+  app.use('/usuarios', require('./src/routes/usuarios'));
 
-// Middleware para procesar archivos con multer
-const uploadFotos = multer({ dest: 'uploads/' }); // Ajusta según tus necesidades
+  console.log('Cargando rutas de auth...');
+  app.use('/auth', require('./src/routes/auth'));
 
-// Rutas
-const bienesRoutes = require('./src/routes/bienes');
-const usuariosRoutes = require('./src/routes/usuarios');
-const authRoutes = require('./src/routes/auth');
-const salesRoutes = require('./src/routes/sales');
-const stockRoutes = require('./src/routes/stock');
-const searchRoutes = require('./src/routes/search')
+  console.log('Cargando rutas de stock...');
+  app.use('/stock', require('./src/routes/stock'));
 
-// Usar rutas
-app.use('/bienes', bienesRoutes);
-app.use('/usuarios', usuariosRoutes);
-app.use('/auth', authRoutes);
-app.use('/sales', salesRoutes);
-app.use('/stock', stockRoutes);
-app.use('/search', searchRoutes); 
+  console.log('Cargando rutas de búsqueda...');
+  app.use('/search', require('./src/routes/search'));
+
+  console.log('Cargando rutas de transacciones...');
+  app.use('/transacciones', require('./src/routes/transacciones'));
+
+  console.log('Cargando rutas de Excel...');
+  app.use('/excel', require('./src/routes/excel'));
+
+  console.log('Cargando rutas de Historial Cambios...');
+  app.use('/historialcambios', require('./src/routes/HistorialCambios'));
+
+  
 
 
-// Verificar la conexión a la base de datos
-sequelize.authenticate()
-  .then(() => {
+  
+
+
+} catch (error) {
+  console.error('Error al cargar rutas:', error.message);
+}
+
+// Inicialización de la base de datos y sincronización
+(async () => {
+  try {
+    await sequelize.authenticate();
     console.log('Conexión a la base de datos exitosa');
-  })
-  .catch(err => {
-    console.error('No se pudo conectar a la base de datos:', err);
-  });
 
-// Rutas específicas para bienes (crear un nuevo bien y subir fotos)
-const router = require('express').Router();
+  
 
-router.post('/add',
-  verifyToken,  // Middleware para verificar el token
-  verificarPermisos(['administrador', 'usuario']),  // Middleware para verificar permisos
-  uploadFotos.array('fotos', 5), // Para permitir subir varias fotos
-  async (req, res) => {  // Callback para manejar la creación del bien
-    try {
-      const { descripcion, precio, tipo, marca, modelo, cantidad, vendedorId, fecha } = req.body;
-      const fotos = req.files || [];  // Asegúrate de que req.files esté presente
+    await Usuario.sync({ alter: true }); // Luego sincroniza usuarios con la relación a roles
+    console.log('Modelo Usuario sincronizado.');
 
-      if (fotos.length === 0) {
-        return res.status(400).json({ error: 'No se han cargado fotos' });
-      }
+    // Sincronizar otros modelos
+    await Bien.sync({ alter: true });
+    console.log('Modelo Bien sincronizado.');
 
-      // Array para almacenar las URLs de las fotos
-      const fotosURLs = [];
+    await Stock.sync({ alter: true });
+    console.log('Modelo Stock sincronizado.');
 
-      // Subir cada foto a Cloudinary
-      for (const foto of fotos) {
-        const fotoURL = await uploadFileToCloudinary(foto);
-        fotosURLs.push(fotoURL);
-      }
+    await Transaccion.sync({ alter: true });
+    console.log('Modelo Transaccion sincronizado.');
 
-      // Crear el nuevo bien
-      const nuevoBien = await Bien.create({
-        descripcion,
-        precio,
-        tipo,
-        marca,
-        modelo,
-        stock: cantidad,
-        vendedorId,
-        fecha,
-        fotos: fotosURLs  // Almacenar las URLs de las fotos
-      });
+    await DetallesBien.sync({ alter: true });
+    console.log('Modelo DetallesBien sincronizado.');
 
-      res.status(201).json(nuevoBien);
-    } catch (error) {
-      console.error('Error al crear el bien:', error);
-      res.status(500).json({ error: 'Error al crear el bien' });
-    }
+    await HistorialCambios.sync({ alter: true });
+    console.log('Modelo HistorialCambios sincronizado.');
+
+    await PasswordResetToken.sync({ alter: true });
+    console.log('Modelo PasswordResetToken sincronizado.');
+
+    // Inicia el servidor
+    app.listen(PORT, () => {
+      console.log(`Servidor corriendo en el puerto ${PORT}`);
+    });
+  } catch (error) {
+    console.error('Error durante la inicialización:', error);
   }
-);
+})();
 
-// Agregar la ruta para bienes al servidor
-app.use('/bienes', router);
 
-// Sincronizar la base de datos
-// sequelize.sync({ alter: true })
-//   .then(() => {
-//     console.log('Base de datos sincronizada');
-//   })
-//   .catch(error => {
-//     console.error('Error al sincronizar la base de datos:', error);
-//   });
-
-// Iniciar el servidor
-app.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}`);
+// Middleware global de manejo de errores
+app.use((err, req, res, next) => {
+  console.error('Error en el servidor:', err.message);
+  if (res.headersSent) {
+    return next(err); // Si ya se envió una respuesta, termina aquí
+  }
+  res.status(500).json({ message: 'Error interno del servidor', error: err.message });
 });
