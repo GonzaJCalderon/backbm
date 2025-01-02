@@ -10,9 +10,9 @@ const PORT = process.env.PORT || 5005;
 
 // Configuración de CORS
 const corsOptions = {
-  origin: ['http://localhost:3000', 'http://localhost:5005', 'http://10.100.1.80', ],
+  origin: ['http://localhost:3000', 'http://10.100.1.80:3000'], // Añade todas las URLs necesarias
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Propietario-UUID'], // Agregar aquí el encabezado personalizado
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Propietario-UUID'],
   credentials: true,
 };
 app.use(cors(corsOptions));

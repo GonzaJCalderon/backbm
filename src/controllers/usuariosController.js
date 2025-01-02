@@ -43,6 +43,16 @@ const crearUsuario = async (req, res) => {
       return res.status(400).json({ message: 'El tipo debe ser "fisica" o "juridica".' });
     }
 
+    // Validar dirección si está presente
+    let direccionValidada = null;
+    if (direccion) {
+      direccionValidada = typeof direccion === 'string' ? JSON.parse(direccion) : direccion;
+
+      if (!direccionValidada.calle || !direccionValidada.altura || !direccionValidada.departamento) {
+        return res.status(400).json({ message: 'La dirección debe incluir calle, altura y departamento.' });
+      }
+    }
+
     // Asignar rol por defecto si no se especifica
     const rolesValidos = ['admin', 'usuario', 'moderador'];
     const rolAsignado = rolesValidos.includes(rolDefinitivo) ? rolDefinitivo : 'usuario';
@@ -58,10 +68,10 @@ const crearUsuario = async (req, res) => {
       email: emailNormalizado,
       dni,
       cuit,
-      direccion,
+      direccion: direccionValidada,
       password: passwordHasheada,
       rolDefinitivo: rolAsignado,
-      tipo, // Ahora se incluye el campo tipo
+      tipo,
     });
 
     const usuarioSinPassword = usuario.toJSON();
@@ -166,14 +176,12 @@ const registerUsuarioPorTercero = async (req, res) => {
     const existingUser = await Usuario.findOne({ where: { email } });
 
     if (existingUser) {
-      // El usuario ya existe, no enviar enlace
       return res.status(200).json({
         mensaje: 'El usuario ya existe en el sistema.',
-        usuario: existingUser, // Opcional: devolver datos del usuario existente si lo necesitas
+        usuario: existingUser,
       });
     }
 
-    // Crear un nuevo usuario
     const nuevoUsuario = await Usuario.create({
       uuid: uuidv4(),
       dni,
@@ -184,18 +192,18 @@ const registerUsuarioPorTercero = async (req, res) => {
       razonSocial: tipo === 'juridica' ? razonSocial : null,
       cuit,
       direccion,
-      password: await bcrypt.hash('default_password', 10), // Contraseña por defecto
+      password: await bcrypt.hash('default_password', 10),
       estado: 'pendiente',
       rolDefinitivo: 'usuario',
     });
 
-    // Generar un token JWT para el nuevo usuario
     const token = jwt.sign(
-      { id: nuevoUsuario.uuid }, // Payload
-      process.env.JWT_SECRET || 'bienes_muebles', // Clave secreta
-      { expiresIn: '24h' } // Tiempo de expiración
+      { id: nuevoUsuario.uuid },
+      process.env.JWT_SECRET || 'bienes_muebles',
+      { expiresIn: '24h' }
     );
 
+    // Enlace al componente de actualización
     const resetLink = `${process.env.FRONTEND_URL}/usuarios/update-account/${token}`;
 
     const emailBody = `
@@ -205,7 +213,6 @@ const registerUsuarioPorTercero = async (req, res) => {
       <p>Este enlace es válido por 24 horas.</p>
     `;
 
-    // Enviar correo al nuevo usuario
     await enviarCorreo(email, 'Registro exitoso - Completa tu cuenta', emailBody, emailBody);
 
     res.status(201).json({
@@ -220,6 +227,7 @@ const registerUsuarioPorTercero = async (req, res) => {
     });
   }
 };
+
 
 
 const updateAccount = async (req, res) => {
@@ -312,7 +320,7 @@ const aprobarUsuario = async (req, res) => {
 
 const cambiarEstadoUsuario = async (req, res) => {
   const { uuid } = req.params;
-  const { estado, fechaAprobacion, aprobadoPor, motivoRechazo } = req.body;
+  const { estado, fechaAprobacion, aprobadoPor, motivoRechazo, fechaRechazo } = req.body;
 
   try {
     const usuario = await Usuario.findOne({ where: { uuid } });
@@ -323,32 +331,25 @@ const cambiarEstadoUsuario = async (req, res) => {
 
     usuario.estado = estado;
 
-    if (estado === 'aprobado') {
-      usuario.fechaAprobacion = fechaAprobacion;
-      usuario.aprobadoPor = aprobadoPor;
-
-      try {
-        await enviarCorreo(
-          usuario.email,
-          '¡Tu registro ha sido aprobado!',
-          `Hola ${usuario.nombre}, tu registro ha sido aprobado.`,
-          `<p>Hola <strong>${usuario.nombre}</strong>, tu registro ha sido aprobado.</p>`
-        );
-        console.log('Correo de aprobación enviado correctamente.');
-      } catch (error) {
-        console.error('Error al enviar correo de aprobación:', error.message);
-      }
-    } else if (estado === 'rechazado') {
-      usuario.motivoRechazo = motivoRechazo;
+    if (estado === 'rechazado') {
+      usuario.fechaRechazo = fechaRechazo || new Date().toISOString();
       usuario.rechazadoPor = aprobadoPor;
-      usuario.fechaRechazo = new Date();
+      usuario.motivoRechazo = motivoRechazo;
 
+      const reintentarRegistroLink = `${process.env.FRONTEND_URL}/reintentar-registro/${uuid}`;
+
+      // Enviar correo de rechazo con el enlace
       try {
         await enviarCorreo(
           usuario.email,
           'Tu registro ha sido rechazado',
-          `Hola ${usuario.nombre}, lamentamos informarte que tu registro ha sido rechazado. Motivo: ${motivoRechazo}`,
-          `<p>Hola <strong>${usuario.nombre}</strong>, lamentamos informarte que tu registro ha sido rechazado.<br>Motivo: ${motivoRechazo}</p>`
+          `Hola ${usuario.nombre}, lamentamos informarte que tu registro ha sido rechazado. 
+          Motivo: ${motivoRechazo}. 
+          Puedes actualizar tu información haciendo clic en el siguiente enlace: ${reintentarRegistroLink}`,
+          `<p>Hola <strong>${usuario.nombre}</strong>, lamentamos informarte que tu registro ha sido rechazado.<br>
+          Motivo: ${motivoRechazo}</p>
+          <p>Puedes actualizar tu información haciendo clic en el siguiente enlace:</p>
+          <a href="${reintentarRegistroLink}">${reintentarRegistroLink}</a>`
         );
         console.log('Correo de rechazo enviado correctamente.');
       } catch (error) {
@@ -369,6 +370,46 @@ const cambiarEstadoUsuario = async (req, res) => {
 };
 
 
+
+
+
+const reintentarRegistro = async (req, res) => {
+  const { uuid } = req.params;
+  const { nombre, apellido, email, dni, otrosDatos } = req.body;
+
+  try {
+    const usuario = await Usuario.findOne({ where: { uuid } });
+
+    if (!usuario) {
+      return res.status(404).json({ message: 'Usuario no encontrado' });
+    }
+
+    if (usuario.estado !== 'rechazado') {
+      return res.status(400).json({ message: 'Solo los usuarios rechazados pueden reenviar su registro.' });
+    }
+
+    // Actualizar los datos del usuario
+    usuario.nombre = nombre;
+    usuario.apellido = apellido;
+    usuario.email = email;
+    usuario.dni = dni;
+    Object.assign(usuario, otrosDatos); // Actualizar otros datos si es necesario
+
+    // Cambiar estado a "pendiente"
+    usuario.estado = 'pendiente';
+    usuario.motivoRechazo = null; // Eliminar motivo de rechazo para la nueva revisión
+
+    await usuario.save();
+
+    res.status(200).json({
+      message: 'Registro reenviado correctamente para su revisión.',
+      usuario,
+    });
+  } catch (error) {
+    console.error('Error al reenviar registro:', error.message);
+    res.status(500).json({ message: 'Error interno al reenviar registro.' });
+  }
+};
 
 
 
@@ -486,24 +527,29 @@ const actualizarUsuario = async (req, res) => {
     }
 
     const cambios = [];
+    const descripcionCambios = [];
 
     if (nombre && nombre !== usuario.nombre) {
       cambios.push({ campo: 'nombre', valor_anterior: usuario.nombre, valor_nuevo: nombre });
+      descripcionCambios.push(`Nombre cambiado de '${usuario.nombre}' a '${nombre}'`);
       usuario.nombre = nombre;
     }
 
     if (apellido && apellido !== usuario.apellido) {
       cambios.push({ campo: 'apellido', valor_anterior: usuario.apellido, valor_nuevo: apellido });
+      descripcionCambios.push(`Apellido cambiado de '${usuario.apellido}' a '${apellido}'`);
       usuario.apellido = apellido;
     }
 
     if (email && email !== usuario.email) {
       cambios.push({ campo: 'email', valor_anterior: usuario.email, valor_nuevo: email });
+      descripcionCambios.push(`Email cambiado de '${usuario.email}' a '${email}'`);
       usuario.email = email;
     }
 
     if (dni && dni !== usuario.dni) {
       cambios.push({ campo: 'dni', valor_anterior: usuario.dni, valor_nuevo: dni });
+      descripcionCambios.push(`DNI cambiado de '${usuario.dni}' a '${dni}'`);
       usuario.dni = dni;
     }
 
@@ -512,6 +558,7 @@ const actualizarUsuario = async (req, res) => {
       const direccionActual = JSON.stringify(usuario.direccion);
       if (nuevaDireccion !== direccionActual) {
         cambios.push({ campo: 'direccion', valor_anterior: direccionActual, valor_nuevo: nuevaDireccion });
+        descripcionCambios.push(`Dirección actualizada de '${direccionActual}' a '${nuevaDireccion}'`);
         usuario.direccion = direccion;
       }
     }
@@ -520,23 +567,26 @@ const actualizarUsuario = async (req, res) => {
       const bcrypt = require('bcrypt');
       const hashedPassword = await bcrypt.hash(contraseña, 10);
       cambios.push({ campo: 'contraseña', valor_anterior: '******', valor_nuevo: '******' });
+      descripcionCambios.push(`Contraseña actualizada para el usuario.`);
       usuario.password = hashedPassword;
     }
 
     if (rol && rol !== usuario.rolDefinitivo) {
       cambios.push({ campo: 'rol', valor_anterior: usuario.rolDefinitivo, valor_nuevo: rol });
+      descripcionCambios.push(`Rol cambiado de '${usuario.rolDefinitivo}' a '${rol}'`);
       usuario.rolDefinitivo = rol;
     }
 
     await usuario.save();
 
     // Guardar los cambios en el historial
-    for (const cambio of cambios) {
+    for (const [index, cambio] of cambios.entries()) {
       await HistorialCambios.create({
         usuario_id: uuid,
         campo: cambio.campo,
         valor_anterior: cambio.valor_anterior,
         valor_nuevo: cambio.valor_nuevo,
+        descripcion: descripcionCambios[index], // Agregar la descripción
       });
     }
 
@@ -550,7 +600,6 @@ const actualizarUsuario = async (req, res) => {
     res.status(500).json({ message: 'Error al actualizar usuario.', detalles: error.message });
   }
 };
-
 
 
 // Eliminar usuario
@@ -589,13 +638,20 @@ const obtenerUsuarioPorId = async (req, res) => {
 
 const obtenerUsuariosPendientes = async (req, res) => {
   try {
-    const usuarios = await Usuario.findAll({ where: { estado: 'pendiente' } });
-    res.json(usuarios);
+      const usuariosPendientes = await Usuario.findAll({
+          where: {
+              estado: ['pendiente', 'pendiente_revision'], // Incluye ambos estados
+          },
+      });
+
+      res.status(200).json(usuariosPendientes);
   } catch (error) {
-    console.error('Error al obtener usuarios pendientes:', error);
-    res.status(500).json({ message: 'Error al obtener usuarios pendientes.', error: error.message });
+      console.error('Error al obtener usuarios pendientes:', error);
+      res.status(500).json({ message: 'Error al obtener usuarios pendientes.' });
   }
 };
+
+
 
 const asignarRolTemporal = async (req, res) => {
   const { uuid } = req.params;
@@ -805,5 +861,7 @@ module.exports = {
   checkExistingUser, // Verificar si un usuario existe
   resetPassword,
   updateAccount,
+  reintentarRegistro, 
+
 };
 

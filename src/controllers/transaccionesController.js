@@ -25,22 +25,58 @@ cloudinary.config({
 
 
 const registrarCompra = async (req, res) => {
-  const {
-    tipo,
-    marca,
-    modelo,
-    descripcion,
-    precio,
-    cantidad,
-    metodoPago,
-    vendedorId,
-  } = req.body;
-
-  const compradorId = req.user?.uuid; // Usuario autenticado
-  const fotos = req.uploadedPhotos || []; // Fotos subidas
-  let transaction;
-
   try {
+    // Usuario autenticado desde el token
+    const compradorId = req.user?.uuid;
+    const comprador = await Usuario.findOne({ where: { uuid: compradorId } });
+
+    if (!comprador) {
+      return res.status(404).json({ message: 'Usuario no encontrado.' });
+    }
+
+    // Recuperar el DNI desde el token o el formulario
+    const dniComprador = req.body.dniComprador || comprador.dni;
+
+    // Datos del cuerpo de la solicitud
+    const {
+      tipo,
+      marca,
+      modelo,
+      descripcion,
+      precio,
+      cantidad,
+      metodoPago,
+      vendedorId,
+    } = req.body;
+
+    // Validar datos requeridos
+    if (
+      !tipo ||
+      !marca ||
+      !modelo ||
+      !descripcion ||
+      !precio ||
+      !cantidad ||
+      !metodoPago ||
+      !vendedorId ||
+      !dniComprador
+    ) {
+      return res.status(400).json({
+        message: 'Faltan datos obligatorios.',
+        missingFields: {
+          tipo,
+          marca,
+          modelo,
+          descripcion,
+          precio,
+          cantidad,
+          metodoPago,
+          vendedorId,
+          dniComprador,
+        },
+      });
+    }
+
     console.log('Datos recibidos:', {
       tipo,
       marca,
@@ -51,99 +87,105 @@ const registrarCompra = async (req, res) => {
       metodoPago,
       vendedorId,
       compradorId,
-      fotos,
+      dniComprador,
     });
 
-    if (!tipo || !marca || !modelo || !descripcion || !precio || !cantidad || !metodoPago || !vendedorId || !compradorId) {
-      return res.status(400).json({ message: 'Faltan datos obligatorios.' });
-    }
+    // Iniciar transacción
+    const transaction = await sequelize.transaction();
 
-    transaction = await sequelize.transaction();
+    try {
+      // Buscar o crear el bien
+      let bien = await Bien.findOne({
+        where: { tipo, marca, modelo },
+        transaction,
+      });
 
-    // Buscar o crear el bien
-    let bien = await Bien.findOne({
-      where: { tipo, marca, modelo },
-      transaction,
-    });
+      if (!bien) {
+        // Crear un nuevo bien si no existe
+        bien = await Bien.create(
+          {
+            uuid: uuidv4(),
+            tipo,
+            marca,
+            modelo,
+            descripcion,
+            precio: parseFloat(precio),
+            fotos: req.uploadedPhotos || [], // Fotos opcionales
+            propietario_uuid: compradorId,
+          },
+          { transaction }
+        );
+        console.log('Nuevo bien creado:', bien);
+      } else {
+        console.log('Bien existente encontrado:', bien);
 
-    if (!bien) {
-      // Crear nuevo bien si no existe
-      bien = await Bien.create(
+        // Actualizar datos del bien si faltan
+        bien.descripcion = descripcion;
+        bien.precio = parseFloat(precio);
+        bien.fotos = req.uploadedPhotos || [];
+        bien.propietario_uuid = compradorId;
+        await bien.save({ transaction });
+        console.log('Bien actualizado:', bien);
+      }
+
+      // Manejar el stock del comprador
+      const stockExistente = await Stock.findOne({
+        where: { bien_uuid: bien.uuid, usuario_uuid: compradorId },
+        transaction,
+      });
+
+      if (stockExistente) {
+        stockExistente.cantidad += parseInt(cantidad, 10);
+        await stockExistente.save({ transaction });
+      } else {
+        await Stock.create(
+          {
+            uuid: uuidv4(),
+            bien_uuid: bien.uuid,
+            cantidad: parseInt(cantidad, 10),
+            usuario_uuid: compradorId,
+          },
+          { transaction }
+        );
+      }
+
+      // Registrar la transacción
+      const nuevaTransaccion = await Transaccion.create(
         {
-          uuid: uuidv4(),
-          tipo,
-          marca,
-          modelo,
-          descripcion, // Asignar descripción
-          precio: parseFloat(precio), // Asignar precio
-          fotos, // Asignar fotos
-          propietario_uuid: compradorId, // Asignar el propietario como el comprador
-        },
-        { transaction }
-      );
-      console.log('Nuevo bien creado:', bien);
-    } else {
-      console.log('Bien existente encontrado:', bien);
-
-      // Actualizar el bien con datos faltantes si es necesario
-      bien.descripcion = descripcion;
-      bien.precio = parseFloat(precio);
-      bien.fotos = fotos;
-      bien.propietario_uuid = compradorId;
-      await bien.save({ transaction });
-      console.log('Bien actualizado:', bien);
-    }
-
-    // Manejar el stock del comprador
-    const stockExistente = await Stock.findOne({
-      where: { bien_uuid: bien.uuid, usuario_uuid: compradorId },
-      transaction,
-    });
-
-    if (stockExistente) {
-      stockExistente.cantidad += parseInt(cantidad, 10);
-      await stockExistente.save({ transaction });
-    } else {
-      await Stock.create(
-        {
-          uuid: uuidv4(),
-          bien_uuid: bien.uuid,
           cantidad: parseInt(cantidad, 10),
-          usuario_uuid: compradorId,
+          metodoPago,
+          comprador_uuid: compradorId,
+          vendedor_uuid: vendedorId,
+          bien_uuid: bien.uuid,
+          fotos: req.uploadedPhotos || [],
+          precio: parseFloat(precio),
         },
         { transaction }
       );
+
+      console.log('Transacción registrada:', nuevaTransaccion);
+
+      // Confirmar la transacción
+      await transaction.commit();
+
+      res.status(201).json({
+        message: 'Compra registrada con éxito.',
+        bien,
+        transaccion: nuevaTransaccion,
+      });
+    } catch (error) {
+      // Revertir transacción en caso de error
+      await transaction.rollback();
+      console.error('Error al registrar la compra (transacción):', error);
+      res.status(500).json({
+        message: 'Error al registrar la compra.',
+        detalles: error.message,
+      });
     }
-
-    // Registrar la transacción
-    const nuevaTransaccion = await Transaccion.create(
-      {
-        cantidad: parseInt(cantidad, 10),
-        metodoPago,
-        comprador_uuid: compradorId,
-        vendedor_uuid: vendedorId,
-        bien_uuid: bien.uuid,
-        fotos, // Asignar fotos
-        precio: parseFloat(precio),
-      },
-      { transaction }
-    );
-
-    console.log('Transacción registrada:', nuevaTransaccion);
-
-    // Confirmar la transacción
-    await transaction.commit();
-
-    res.status(201).json({
-      message: 'Compra registrada con éxito.',
-      bien,
-      transaccion: nuevaTransaccion,
-    });
   } catch (error) {
-    if (transaction) await transaction.rollback();
-    console.error('Error al registrar la compra:', error);
+    console.error('Error general al registrar la compra:', error);
     res.status(500).json({
-      message: 'Error interno.',
+      message: 'Error interno del servidor.',
       detalles: error.message,
     });
   }

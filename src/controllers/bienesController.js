@@ -256,21 +256,26 @@ const crearBien = async (req, res) => {
 
 
 
-// Actualizar un bien
 const actualizarBien = async (req, res) => {
   try {
-    const { id } = req.params;
-    const { descripcion, precio, vendedorId, compradorId } = req.body;
+    const { uuid } = req.params;
 
-    const bien = await Bien.findByPk(id);
+    if (!uuid) {
+      return res.status(400).json({ message: 'El UUID del bien es requerido.' });
+    }
+
+    const { descripcion, precio, tipo, marca, modelo } = req.body;
+
+    const bien = await Bien.findOne({ where: { uuid } });
     if (!bien) {
       return res.status(404).json({ message: 'Bien no encontrado.' });
     }
 
     bien.descripcion = descripcion || bien.descripcion;
     bien.precio = precio || bien.precio;
-    bien.vendedorId = vendedorId || bien.vendedorId;
-    bien.compradorId = compradorId || bien.compradorId;
+    bien.tipo = tipo || bien.tipo;
+    bien.marca = marca || bien.marca;
+    bien.modelo = modelo || bien.modelo;
 
     await bien.save();
     res.status(200).json(bien);
@@ -280,22 +285,37 @@ const actualizarBien = async (req, res) => {
   }
 };
 
+
 // Eliminar un bien
 const eliminarBien = async (req, res) => {
   try {
-    const { id } = req.params;
-    const bien = await Bien.findByPk(id);
+    const { uuid } = req.params; // Capturar el UUID del bien desde los parámetros de la solicitud
+
+    // Validar que se haya enviado el UUID
+    if (!uuid) {
+      return res.status(400).json({ message: 'El UUID del bien es requerido.' });
+    }
+
+    // Buscar el bien por UUID
+    const bien = await Bien.findOne({ where: { uuid } });
     if (!bien) {
       return res.status(404).json({ message: 'Bien no encontrado.' });
     }
 
+    // Eliminar el bien
     await bien.destroy();
+
     res.status(200).json({ message: 'Bien eliminado correctamente.' });
   } catch (error) {
-    console.error('Error eliminando el bien:', error);
-    res.status(500).json({ message: 'Error eliminando el bien.', error: error.message });
+    console.error('Error al eliminar el bien:', error);
+    res.status(500).json({
+      message: 'Error interno al eliminar el bien.',
+      error: error.message,
+    });
   }
 };
+
+
 
 // bienesController.js
 

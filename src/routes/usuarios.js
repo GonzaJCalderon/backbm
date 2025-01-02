@@ -175,32 +175,20 @@ router.put('/:uuid/aprobar', verifyToken, verificarPermisos(['admin']), async (r
 
 
 // Ruta para rechazar un usuario
+
+// Ruta para rechazar un usuario
+// Ruta para rechazar un usuario
 router.put('/:uuid/rechazar', verifyToken, verificarPermisos(['admin']), async (req, res) => {
-  const { uuid } = req.params;
-  const { fechaRechazo, rechazadoPor, motivoRechazo } = req.body;
+  console.log('Datos recibidos en la ruta de rechazo:', req.body);
 
-  try {
-      const usuario = await Usuario.findOne({ where: { uuid } });
-
-      if (!usuario) {
-          return res.status(404).json({ message: 'Usuario no encontrado' });
-      }
-
-      usuario.estado = 'rechazado';
-      usuario.fechaRechazo = fechaRechazo;
-      usuario.rechazadoPor = rechazadoPor;
-      usuario.motivoRechazo = motivoRechazo;
-
-      await usuario.save();
-
-      res.status(200).json({
-          message: 'Usuario rechazado correctamente',
-          usuario,
-      });
-  } catch (error) {
-      console.error('Error al rechazar usuario:', error);
-      res.status(500).json({ message: 'Error interno al rechazar usuario.' });
+  if (!req.body.rechazadoPor || !req.body.motivoRechazo) {
+    return res.status(400).json({ message: 'Los campos rechazadoPor y motivoRechazo son obligatorios.' });
   }
+
+  req.body.estado = 'rechazado';
+  req.body.fechaRechazo = new Date().toISOString();
+
+  await usuarioController.cambiarEstadoUsuario(req, res);
 });
 
 
@@ -226,6 +214,7 @@ router.patch('/usuarios/:uuid/estado', usuarioController.cambiarEstadoUsuario);
 
 router.patch('/usuarios/:uuid', usuarioController.actualizarUsuario);
 
+router.put('/usuarios/:uuid/reintentar', usuarioController.reintentarRegistro);
 
 
 router.post('/check', usuarioController.checkExistingUser);
@@ -273,6 +262,37 @@ router.put('/:uuid/stock', verifyToken, verificarPermisos(['admin']), async (req
   } catch (error) {
     console.error('Error al actualizar stock del usuario:', error);
     res.status(500).json({ error: 'Error al procesar la solicitud.' });
+  }
+});
+
+// Ruta para reenviar datos de usuario rechazado
+router.put('/:uuid/reenviar', async (req, res) => {
+  const { uuid } = req.params;
+  const { nombre, apellido, email, dni } = req.body;
+
+  try {
+      const usuario = await Usuario.findOne({ where: { uuid } });
+
+      if (!usuario || usuario.estado !== 'rechazado') {
+          return res.status(404).json({ message: 'El usuario no está en estado rechazado o no existe.' });
+      }
+
+      usuario.nombre = nombre;
+      usuario.apellido = apellido;
+      usuario.email = email;
+      usuario.dni = dni;
+      usuario.estado = 'pendiente_revision'; // Cambiar estado para reingreso
+      usuario.fechaReenvio = new Date();
+
+      await usuario.save();
+
+      res.status(200).json({
+          message: 'Solicitud reenviada correctamente.',
+          usuario,
+      });
+  } catch (error) {
+      console.error('Error al reenviar solicitud:', error);
+      res.status(500).json({ message: 'Error interno al reenviar solicitud.' });
   }
 });
 

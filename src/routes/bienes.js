@@ -40,12 +40,14 @@ router.get('/:uuid', bienesController.obtenerBienPorUuid);
 
 
 // Actualizar un bien por su ID
+// Actualizar un bien por su UUID
 router.put(
-  '/:id',
+  '/:uuid', // Cambiado de :id a :uuid
   verifyToken,
-  verificarPermisos(['administrador', 'usuario']),
+  verificarPermisos(['admin', 'usuario']),
   bienesController.actualizarBien
 );
+
 
 // Eliminar un bien por su ID
 router.delete('/:uuid', verifyToken, verificarPermisos(['admin']), bienesController.eliminarBien);
