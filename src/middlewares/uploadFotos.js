@@ -1,3 +1,4 @@
+
 const multer = require('multer');
 const path = require('path');
 const cloudinary = require('cloudinary').v2;
@@ -81,5 +82,11 @@ const uploadFileToCloudinary = async (fileBuffer) => {
     stream.end(fileBuffer);
   });
 };
+
+
+
+
+
+
 
 module.exports = { uploadFotosMiddleware, uploadFileToCloudinary, uploadFotos };

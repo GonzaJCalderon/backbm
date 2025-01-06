@@ -163,30 +163,46 @@ router.delete('/:uuid/rolTemporal', verifyToken, verificarPermisos(['admin']), u
 
 // Ruta para aprobar un usuario
 router.put('/:uuid/aprobar', verifyToken, verificarPermisos(['admin']), async (req, res) => {
-  console.log('Datos recibidos en la ruta:', req.body);
+  const { uuid } = req.params;
+  const { estado, fechaAprobacion, aprobadoPor, aprobadoPorNombre } = req.body;
 
-  if (!req.body.aprobadoPor) {
-      return res.status(400).json({ message: 'El campo aprobadoPor es obligatorio.' });
+  if (!aprobadoPor || !aprobadoPorNombre) {
+    return res.status(400).json({ message: 'Los campos aprobadoPor y aprobadoPorNombre son obligatorios.' });
   }
 
-  req.body.estado = 'aprobado';
-  await usuarioController.cambiarEstadoUsuario(req, res);
+  try {
+    const usuario = await Usuario.findOne({ where: { uuid } });
+
+    if (!usuario) {
+      return res.status(404).json({ message: 'Usuario no encontrado' });
+    }
+
+    usuario.estado = estado;
+    usuario.fechaAprobacion = fechaAprobacion;
+    usuario.aprobadoPor = aprobadoPor;
+    usuario.aprobadoPorNombre = aprobadoPorNombre;
+
+    await usuario.save();
+
+    res.status(200).json({ message: 'Usuario aprobado correctamente', usuario });
+  } catch (error) {
+    res.status(500).json({ message: 'Error interno del servidor.' });
+  }
 });
 
 
 // Ruta para rechazar un usuario
 
-// Ruta para rechazar un usuario
-// Ruta para rechazar un usuario
 router.put('/:uuid/rechazar', verifyToken, verificarPermisos(['admin']), async (req, res) => {
-  console.log('Datos recibidos en la ruta de rechazo:', req.body);
+  const { motivoRechazo } = req.body;
 
-  if (!req.body.rechazadoPor || !req.body.motivoRechazo) {
-    return res.status(400).json({ message: 'Los campos rechazadoPor y motivoRechazo son obligatorios.' });
+  if (!motivoRechazo) {
+    return res.status(400).json({ message: 'El motivo del rechazo es obligatorio.' });
   }
 
   req.body.estado = 'rechazado';
   req.body.fechaRechazo = new Date().toISOString();
+  req.body.rechazadoPor = req.user?.uuid; // Asigna el usuario autenticado como rechazador
 
   await usuarioController.cambiarEstadoUsuario(req, res);
 });

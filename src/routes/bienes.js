@@ -7,6 +7,7 @@ const transaccionesController = require('../controllers/transaccionesController'
 const { verifyToken, verificarPermisos } = require('../middlewares/authMiddleware');
 const { uploadFotosMiddleware, uploadFileToCloudinary } = require('../middlewares/uploadFotos');
 const { v4: uuidv4 } = require('uuid');
+const { uploadFotosBienMiddleware } = require('../middlewares/uploadFotosBien');
 
 
 
@@ -14,12 +15,7 @@ const { v4: uuidv4 } = require('uuid');
 router.get('/', bienesController.obtenerBienes);
 
 // Crear un nuevo bien con fotos y stock inicial
-router.post(
-  '/add',
-  verifyToken,
-  uploadFotosMiddleware,
-  bienesController.crearBien
-);
+router.post('/add', uploadFotosBienMiddleware, bienesController.crearBien);
 
 // Obtener bienes filtrados por marca, tipo y modelo
 router.get('/filtrados', bienesController.getBienesPorMarcaTipoModelo);

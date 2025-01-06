@@ -5,6 +5,7 @@ const { uploadFileToCloudinary } = require('../middlewares/uploadFotos');
 const { v4: uuidv4 } = require('uuid');
 const cloudinary = require('cloudinary').v2;
 const { sequelize} = require('../models');
+const { uploadFotosBien} = require('../middlewares/uploadFotosBien');
 
 
 const { generateUUID } = require('uuid');
@@ -121,48 +122,37 @@ const obtenerBienPorUuid = async (req, res) => {
   }
 };
 
-
 const crearBien = async (req, res) => {
-  const {
+  const { tipo, marca, modelo, descripcion, precio, propietario_uuid, stock, imei } = req.body;
+
+  console.log('--- Datos Recibidos del Cliente ---');
+  console.log({
     tipo,
     marca,
     modelo,
     descripcion,
     precio,
     propietario_uuid,
-    stock: cantidadStock,
-    imei, // Identificadores manuales
-  } = req.body;
-
-  const compradorId = req.user.uuid; // Usuario autenticado
-  const fotos = req.uploadedPhotos || []; // Fotos subidas desde el middleware
-  let transaction;
-
-  console.log('--- Datos Recibidos ---');
-  console.log({
-    tipo, marca, modelo, descripcion, precio, propietario_uuid, cantidadStock, fotos,
+    stock,
+    imei,
+    fotos: req.uploadedPhotos, // Fotos subidas
   });
 
+  if (!tipo || !marca || !modelo || !descripcion || !precio || !stock) {
+    return res.status(400).json({ message: 'Todos los campos son obligatorios.' });
+  }
+
+  const transaction = await sequelize.transaction(); // Manejo de transacciones
+
   try {
-    if (!tipo || !marca || !modelo || !descripcion || !precio || !cantidadStock) {
-      return res.status(400).json({ message: 'Faltan datos obligatorios.' });
-    }
-
-    // Verificar que haya fotos subidas
-    if (!fotos || fotos.length === 0) {
-      return res.status(400).json({ message: 'Se requieren fotos para registrar el bien.' });
-    }
-
-    transaction = await sequelize.transaction();
-
-    // Buscar o crear el Bien
+    // Buscar si ya existe un bien con el mismo tipo, marca y modelo
     let bien = await Bien.findOne({
       where: { tipo, marca, modelo },
       transaction,
     });
 
     if (!bien) {
-      // Crear el bien si no existe
+      // Crear un nuevo bien si no existe
       bien = await Bien.create(
         {
           uuid: uuidv4(),
@@ -171,85 +161,59 @@ const crearBien = async (req, res) => {
           modelo,
           descripcion,
           precio: parseFloat(precio),
-          fotos, // Aquí se guardan las fotos
-          propietario_uuid: compradorId,
+          fotos: req.uploadedPhotos || [], // Fotos opcionales
+          propietario_uuid,
         },
         { transaction }
       );
       console.log('Nuevo bien creado:', bien);
     } else {
-      // Si existe, actualizamos sus fotos y otros campos
       console.log('Bien existente encontrado:', bien);
+
+      // Actualizar datos del bien si es necesario
       bien.descripcion = descripcion;
       bien.precio = parseFloat(precio);
-      bien.fotos = fotos; // Actualizar fotos
-      bien.propietario_uuid = compradorId;
+      bien.fotos = req.uploadedPhotos || [];
       await bien.save({ transaction });
+      console.log('Bien actualizado:', bien);
     }
 
-    // Crear o actualizar el Stock
+    // Manejar el stock del bien
+    const stockParsed = typeof stock === 'string' ? JSON.parse(stock) : stock;
+
     const stockExistente = await Stock.findOne({
-      where: { bien_uuid: bien.uuid, usuario_uuid: compradorId },
+      where: { bien_uuid: bien.uuid, usuario_uuid: propietario_uuid },
       transaction,
     });
 
     if (stockExistente) {
-      stockExistente.cantidad += parseInt(cantidadStock, 10);
+      stockExistente.cantidad += parseInt(stockParsed.cantidad, 10);
       await stockExistente.save({ transaction });
+      console.log('Stock existente actualizado:', stockExistente);
     } else {
       await Stock.create(
         {
           uuid: uuidv4(),
           bien_uuid: bien.uuid,
-          cantidad: parseInt(cantidadStock, 10),
-          usuario_uuid: compradorId,
+          cantidad: parseInt(stockParsed.cantidad, 10),
+          usuario_uuid: propietario_uuid,
         },
         { transaction }
       );
+      console.log('Nuevo stock creado.');
     }
-
-    // Crear identificadores únicos en DetallesBien
-    const detalles = [];
-    if (imei && Array.isArray(imei) && imei.length === cantidadStock) {
-      // Si hay IMEIs específicos
-      imei.forEach((id) => {
-        detalles.push({
-          bien_uuid: bien.uuid,
-          identificador_unico: id,
-        });
-      });
-    } else {
-      // Generar identificadores únicos
-      for (let i = 0; i < cantidadStock; i++) {
-        detalles.push({
-          bien_uuid: bien.uuid,
-          identificador_unico: `${tipo.toUpperCase()}-${uuidv4()}`,
-        });
-      }
-    }
-
-    await DetallesBien.bulkCreate(detalles, { transaction });
-    console.log('DetallesBien creados:', detalles);
 
     // Confirmar la transacción
     await transaction.commit();
 
-    res.status(201).json({
-      message: 'Bien creado con éxito.',
-      bien,
-      stock: cantidadStock,
-      identificadores: detalles,
-      fotos, // Aseguramos que las fotos se incluyan en la respuesta
-    });
+    res.status(201).json({ message: 'Bien registrado exitosamente.', bien });
   } catch (error) {
-    if (transaction) await transaction.rollback();
-    console.error('Error al crear el bien:', error.message);
-    res.status(500).json({
-      message: 'Error al registrar el bien.',
-      detalles: error.message,
-    });
+    await transaction.rollback(); // Revertir cambios en caso de error
+    console.error('Error al registrar el bien:', error);
+    res.status(500).json({ message: 'Error interno del servidor.', error: error.message });
   }
 };
+
 
 
 

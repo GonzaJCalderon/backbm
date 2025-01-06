@@ -15,10 +15,11 @@ const validarCampos = (campos) => (req, res, next) => {
     const faltantes = campos.filter((campo) => {
       if (campo === 'direccion') {
         const { direccion } = req.body;
-        return !direccion || !direccion.calle || !direccion.numero;
+        // Verifica los campos requeridos en la dirección
+        return !direccion || !direccion.calle || !direccion.altura || !direccion.departamento;
       }
-      
-      // Para otros campos, solo verificamos que no estén undefined o null
+
+      // Para otros campos, verificamos que no estén undefined o null
       return !req.body[campo];
     });
 

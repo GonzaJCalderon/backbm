@@ -47,6 +47,10 @@ try {
   app.use('/historialcambios', require('./src/routes/HistorialCambios'));
 
   
+  console.log('Cargando rutas de Uploads...');
+  app.use('/uploads', require('./src/routes/uploads'));
+
+  
 
 
   

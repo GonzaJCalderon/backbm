@@ -37,20 +37,38 @@ const crearUsuario = async (req, res) => {
       return res.status(400).json({ message: 'El usuario ya existe con ese correo electrónico.' });
     }
 
-    // Validar tipo
+    // Validar el tipo de usuario
     const tiposValidos = ['fisica', 'juridica'];
     if (!tiposValidos.includes(tipo)) {
       return res.status(400).json({ message: 'El tipo debe ser "fisica" o "juridica".' });
     }
 
-    // Validar dirección si está presente
-    let direccionValidada = null;
-    if (direccion) {
-      direccionValidada = typeof direccion === 'string' ? JSON.parse(direccion) : direccion;
+    // Validar la dirección
+    if (!direccion || typeof direccion !== 'object') {
+      return res.status(400).json({ message: 'La dirección debe ser un objeto válido.' });
+    }
 
-      if (!direccionValidada.calle || !direccionValidada.altura || !direccionValidada.departamento) {
-        return res.status(400).json({ message: 'La dirección debe incluir calle, altura y departamento.' });
-      }
+    const { calle, altura, departamento, barrio } = direccion;
+    if (!calle || !altura || !departamento) {
+      return res.status(400).json({ message: 'La dirección debe incluir calle, altura y departamento.' });
+    }
+
+    // Validar CUIT o DNI según el tipo
+    if (tipo === 'fisica' && !dni) {
+      return res.status(400).json({ message: 'El DNI es obligatorio para personas físicas.' });
+    }
+
+    if (tipo === 'juridica' && !cuit) {
+      return res.status(400).json({ message: 'El CUIT es obligatorio para personas jurídicas.' });
+    }
+
+    // Validar que CUIT y DNI sean números
+    if (dni && isNaN(dni)) {
+      return res.status(400).json({ message: 'El DNI debe ser un número válido.' });
+    }
+
+    if (cuit && !/^\d{11}$/.test(cuit)) {
+      return res.status(400).json({ message: 'El CUIT debe ser un número de 11 dígitos.' });
     }
 
     // Asignar rol por defecto si no se especifica
@@ -68,18 +86,25 @@ const crearUsuario = async (req, res) => {
       email: emailNormalizado,
       dni,
       cuit,
-      direccion: direccionValidada,
+      direccion: { calle, altura, departamento, barrio: barrio || null },
       password: passwordHasheada,
       rolDefinitivo: rolAsignado,
       tipo,
     });
 
+    // Excluir la contraseña del objeto de respuesta
     const usuarioSinPassword = usuario.toJSON();
     delete usuarioSinPassword.password;
 
     res.status(201).json(usuarioSinPassword);
   } catch (error) {
     console.error('Error al crear usuario:', error);
+
+    // Manejar errores específicos
+    if (error.name === 'SequelizeValidationError') {
+      return res.status(400).json({ message: error.errors.map(err => err.message).join(', ') });
+    }
+
     res.status(500).json({ message: 'Error interno del servidor.' });
   }
 };
@@ -91,6 +116,7 @@ const login = async (req, res) => {
 
   try {
     const usuario = await Usuario.findOne({ where: { email } });
+
     if (!usuario) {
       return res.status(404).json({ message: 'Usuario no encontrado.' });
     }
@@ -114,8 +140,16 @@ const login = async (req, res) => {
     const refreshToken = jwt.sign(
       { uuid: usuario.uuid },
       refreshSecret,
-      { expiresIn: '7d' } // El refresh token dura más
+      { expiresIn: '7d' }
     );
+
+    // Construir objeto de dirección
+    const direccion = usuario.direccion || {
+      calle: '',
+      altura: '',
+      barrio: '',
+      departamento: '',
+    };
 
     res.status(200).json({
       usuario: {
@@ -123,10 +157,12 @@ const login = async (req, res) => {
         nombre: usuario.nombre,
         apellido: usuario.apellido,
         email: usuario.email,
+        dni: usuario.dni,
         rolDefinitivo: usuario.rolDefinitivo,
+        direccion, // Incluir dirección como un objeto
       },
       token,
-      refreshToken, // Enviar también el refresh token
+      refreshToken,
     });
   } catch (error) {
     console.error('Error en el login:', error.message);
@@ -320,7 +356,7 @@ const aprobarUsuario = async (req, res) => {
 
 const cambiarEstadoUsuario = async (req, res) => {
   const { uuid } = req.params;
-  const { estado, fechaAprobacion, aprobadoPor, motivoRechazo, fechaRechazo } = req.body;
+  const { estado, fechaAprobacion, aprobadoPor, motivoRechazo, fechaRechazo, rechazadoPor } = req.body;
 
   try {
     const usuario = await Usuario.findOne({ where: { uuid } });
@@ -333,28 +369,10 @@ const cambiarEstadoUsuario = async (req, res) => {
 
     if (estado === 'rechazado') {
       usuario.fechaRechazo = fechaRechazo || new Date().toISOString();
-      usuario.rechazadoPor = aprobadoPor;
+      usuario.rechazadoPor = rechazadoPor; // Registrar quién lo rechazó
       usuario.motivoRechazo = motivoRechazo;
 
-      const reintentarRegistroLink = `${process.env.FRONTEND_URL}/reintentar-registro/${uuid}`;
-
-      // Enviar correo de rechazo con el enlace
-      try {
-        await enviarCorreo(
-          usuario.email,
-          'Tu registro ha sido rechazado',
-          `Hola ${usuario.nombre}, lamentamos informarte que tu registro ha sido rechazado. 
-          Motivo: ${motivoRechazo}. 
-          Puedes actualizar tu información haciendo clic en el siguiente enlace: ${reintentarRegistroLink}`,
-          `<p>Hola <strong>${usuario.nombre}</strong>, lamentamos informarte que tu registro ha sido rechazado.<br>
-          Motivo: ${motivoRechazo}</p>
-          <p>Puedes actualizar tu información haciendo clic en el siguiente enlace:</p>
-          <a href="${reintentarRegistroLink}">${reintentarRegistroLink}</a>`
-        );
-        console.log('Correo de rechazo enviado correctamente.');
-      } catch (error) {
-        console.error('Error al enviar correo de rechazo:', error.message);
-      }
+      // Opcional: enviar correo de notificación
     }
 
     await usuario.save();
@@ -514,13 +532,12 @@ const obtenerUsuariosPorEstado = async (req, res) => {
   }
 };
 
-
-
 const actualizarUsuario = async (req, res) => {
   const { uuid } = req.params;
   const { nombre, apellido, email, dni, direccion, contraseña, rol } = req.body;
 
   try {
+    // Buscar el usuario por UUID
     const usuario = await Usuario.findOne({ where: { uuid } });
     if (!usuario) {
       return res.status(404).json({ message: 'Usuario no encontrado.' });
@@ -529,6 +546,7 @@ const actualizarUsuario = async (req, res) => {
     const cambios = [];
     const descripcionCambios = [];
 
+    // Verificar y registrar cambios en cada campo
     if (nombre && nombre !== usuario.nombre) {
       cambios.push({ campo: 'nombre', valor_anterior: usuario.nombre, valor_nuevo: nombre });
       descripcionCambios.push(`Nombre cambiado de '${usuario.nombre}' a '${nombre}'`);
@@ -555,19 +573,32 @@ const actualizarUsuario = async (req, res) => {
 
     if (direccion) {
       const nuevaDireccion = JSON.stringify(direccion);
-      const direccionActual = JSON.stringify(usuario.direccion);
+      const direccionActual = usuario.direccion ? JSON.stringify(usuario.direccion) : null;
+
       if (nuevaDireccion !== direccionActual) {
-        cambios.push({ campo: 'direccion', valor_anterior: direccionActual, valor_nuevo: nuevaDireccion });
-        descripcionCambios.push(`Dirección actualizada de '${direccionActual}' a '${nuevaDireccion}'`);
+        const camposDireccion = ['calle', 'altura', 'barrio', 'departamento'];
+        camposDireccion.forEach((campo) => {
+          const valorAnterior = usuario.direccion?.[campo] || '-';
+          const valorNuevo = direccion[campo] || '-';
+
+          if (valorAnterior !== valorNuevo) {
+            cambios.push({
+              campo: `direccion.${campo}`,
+              valor_anterior: valorAnterior,
+              valor_nuevo: valorNuevo,
+            });
+            descripcionCambios.push(`Campo "direccion.${campo}" cambiado de '${valorAnterior}' a '${valorNuevo}'`);
+          }
+        });
+
         usuario.direccion = direccion;
       }
     }
 
     if (contraseña) {
-      const bcrypt = require('bcrypt');
       const hashedPassword = await bcrypt.hash(contraseña, 10);
       cambios.push({ campo: 'contraseña', valor_anterior: '******', valor_nuevo: '******' });
-      descripcionCambios.push(`Contraseña actualizada para el usuario.`);
+      descripcionCambios.push('Contraseña actualizada para el usuario.');
       usuario.password = hashedPassword;
     }
 
@@ -577,22 +608,23 @@ const actualizarUsuario = async (req, res) => {
       usuario.rolDefinitivo = rol;
     }
 
+    // Guardar cambios en el usuario
     await usuario.save();
 
-    // Guardar los cambios en el historial
+    // Registrar los cambios en el historial
     for (const [index, cambio] of cambios.entries()) {
       await HistorialCambios.create({
         usuario_id: uuid,
         campo: cambio.campo,
         valor_anterior: cambio.valor_anterior,
         valor_nuevo: cambio.valor_nuevo,
-        descripcion: descripcionCambios[index], // Agregar la descripción
+        descripcion: descripcionCambios[index],
       });
     }
 
     res.status(200).json({
       message: 'Usuario actualizado con éxito.',
-      cambios, // Devuelve el historial de cambios
+      cambios,
       usuario,
     });
   } catch (error) {

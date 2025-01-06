@@ -1,37 +1,29 @@
 require('dotenv').config();
 const nodemailer = require('nodemailer');
 
-let transporter;
-
-nodemailer.createTestAccount((err, account) => {
-  if (err) {
-    console.error('Error creando cuenta de prueba Ethereal', err);
-    return;
-  }
-
-  transporter = nodemailer.createTransport({
-    host: 'smtp.ethereal.email',
-    port: 587,
-    auth: {
-      user: account.user,
-      pass: account.pass,
-    },
-  });
-
-  console.log('Cuenta de prueba Ethereal creada:', account.user);
+// Configurar el transporter con credenciales reales
+const transporter = nodemailer.createTransport({
+  host: '10.160.1.86', // Dirección del servidor SMTP
+  port: 587,           // Puerto SMTP
+  secure: false,       // Usa `true` si estás usando el puerto 465 (conexión segura)
+  auth: {
+    user: process.env.SMTP_USER || 'reg-bienesmuebles@mendoza.gov.ar', // Tu usuario
+    pass: process.env.SMTP_PASSWORD || '8=bbucjo', // Tu contraseña
+  },
+  tls: {
+    rejectUnauthorized: false, // Permitir certificados no verificados (solo si es necesario)
+  },
 });
 
-const enviarCorreo = async (to, subject, text, html) => {
-  if (!transporter) {
-    throw new Error('Transporter no inicializado');
-  }
 
+// Función para enviar correos
+const enviarCorreo = async (to, subject, text, html) => {
   if (!to || !subject || !text || !html) {
     throw new Error('Datos incompletos para enviar el correo');
   }
 
   const mailOptions = {
-    from: '"Soporte" <no-reply@example.com>',
+    from: '"Registro de Bienes" <reg-bienesmuebles@mendoza.gov.ar>',
     to,
     subject,
     text,
