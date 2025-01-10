@@ -40,6 +40,8 @@ const PORT = process.env.PORT || 5005;
 const corsOptions = {
   origin: [
     'http://localhost:3000',
+    'http://10.100.1.80:3000',
+    'http://10.100.1.216:9501',
   ],
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
   allowedHeaders: ['Content-Type', 'Authorization'],
@@ -69,6 +71,8 @@ const authRoutes = require('./src/routes/auth');
 const salesRoutes = require('./src/routes/sales');
 const stockRoutes = require('./src/routes/stock');
 const searchRoutes = require('./src/routes/search')
+const renaperRoutes = require('./src/routes/renaper');
+const catotoRoutes = require('./src/routes/test');
 
 // Usar rutas
 app.use('/bienes', bienesRoutes);
@@ -76,7 +80,9 @@ app.use('/usuarios', usuariosRoutes);
 app.use('/auth', authRoutes);
 app.use('/sales', salesRoutes);
 app.use('/stock', stockRoutes);
-app.use('/search', searchRoutes); 
+app.use('/search', searchRoutes);
+app.use('/renaper', renaperRoutes);
+app.use('/catoto', catotoRoutes);
 
 
 // Verificar la conexión a la base de datos
