@@ -86,20 +86,24 @@ const processExcel = async (req, res) => {
 };
 
 const subirFotoACloudinary = async (foto) => {
+    if (!foto || !foto.buffer) {
+        throw new Error('El archivo de la foto está vacío o no es válido.');
+    }
+
     return new Promise((resolve, reject) => {
         cloudinary.uploader.upload_stream({ resource_type: 'image' }, (error, result) => {
             if (error) {
                 console.error('Error al subir foto a Cloudinary:', error);
                 return reject(error);
             }
-            console.log('Resultado de Cloudinary:', result); // Verifica el resultado aquí
             resolve({ secure_url: result.secure_url });
         }).end(foto.buffer);
     });
 };
 
-
 const finalizarCreacionBienes = async (req, res) => {
+    let transaction;
+
     try {
         const { bienes } = req.body;
 
@@ -114,77 +118,117 @@ const finalizarCreacionBienes = async (req, res) => {
             marca: bien.marca || bien.Marca,
             modelo: bien.modelo || bien.Modelo,
             fotos: bien.fotos || [],
-            cantidadStock: bien.cantidadStock || bien.CantidadStock,
+            cantidadStock: bien.cantidadStock || bien.CantidadStock || 0,
+            imei: bien.imei || null, // Puede estar vacío
         }));
 
-        const transaction = await sequelize.transaction();
+        transaction = await sequelize.transaction();
 
         const bienesGuardados = [];
+
         for (const bien of bienesNormalizados) {
-            if (!bien.tipo || !bien.precio) {
-                throw new Error(`El bien con tipo "${bien.tipo}" tiene campos faltantes.`);
+            if (!bien.tipo || !bien.marca || !bien.modelo || bien.cantidadStock <= 0) {
+                console.error(`Datos obligatorios faltantes para el bien: ${JSON.stringify(bien)}`);
+                continue;
             }
 
-            // Subir fotos si existen
-            const fotosSubidas = bien.fotos.length ? await subirFotos(bien.fotos) : [];
-            bien.fotos = fotosSubidas; // Asigna las fotos subidas al bien
-
-            // Crear el bien
-            const nuevoBien = await Bien.create(
-                {
-                    tipo: bien.tipo,
-                    descripcion: bien.descripcion || '',
-                    precio: bien.precio,
-                    marca: bien.marca || '',
-                    modelo: bien.modelo || '',
-                    fotos: fotosSubidas, // Almacenar fotos correctamente
-                    propietario_uuid: req.user.uuid,
-                },
-                { transaction }
-            );
-
-            // Crear stock
-            const nuevoStock = await Stock.create(
-                {
-                    uuid: uuidv4(),
-                    bien_uuid: nuevoBien.uuid,
-                    cantidad: bien.cantidadStock || 0, // Aquí debería reflejar correctamente el valor enviado
-                    usuario_uuid: req.user.uuid,
-                },
-                { transaction }
-            );
-            
-            console.log('Cantidad de stock procesada:', bien.cantidadStock); // Debug
-            
-            
-
-            // Crear identificadores únicos
-            const identificadores = Array.from(
-                { length: bien.cantidadStock || 1 },
-                () => ({
-                    bien_uuid: nuevoBien.uuid,
-                    identificador_unico: `${bien.tipo.toUpperCase()}-${uuidv4()}`,
-                })
-            );
-            await DetallesBien.bulkCreate(identificadores, { transaction });
-
-            bienesGuardados.push({
-                bien: nuevoBien.toJSON(),
-                stock: nuevoStock.toJSON(),
-                identificadores,
+            const bienExistente = await Bien.findOne({
+                where: { tipo: bien.tipo, marca: bien.marca, modelo: bien.modelo },
             });
+
+            let nuevoBien;
+            if (bienExistente) {
+                // Actualizar stock existente
+                const stockExistente = await Stock.findOne({
+                    where: { bien_uuid: bienExistente.uuid },
+                });
+
+                if (stockExistente) {
+                    await stockExistente.update(
+                        { cantidad: stockExistente.cantidad + bien.cantidadStock },
+                        { transaction }
+                    );
+                } else {
+                    await Stock.create(
+                        {
+                            cantidad: bien.cantidadStock,
+                            bien_uuid: bienExistente.uuid,
+                        },
+                        { transaction }
+                    );
+                }
+                nuevoBien = bienExistente;
+            } else {
+                const fotosSubidas = bien.fotos.length
+                    ? await Promise.all(
+                          bien.fotos.map((foto) => subirFotoACloudinary(foto))
+                      )
+                    : [];
+
+                nuevoBien = await Bien.create(
+                    {
+                        tipo: bien.tipo,
+                        descripcion: bien.descripcion,
+                        precio: bien.precio,
+                        marca: bien.marca,
+                        modelo: bien.modelo,
+                        fotos: fotosSubidas.filter((foto) => foto),
+                    },
+                    { transaction }
+                );
+
+                await Stock.create(
+                    {
+                        cantidad: bien.cantidadStock,
+                        bien_uuid: nuevoBien.uuid,
+                    },
+                    { transaction }
+                );
+            }
+
+            // Generar identificadores únicos si no se proporcionaron
+            for (let i = 0; i < bien.cantidadStock; i++) {
+                if (bien.tipo.toLowerCase() === 'teléfono móvil' && bien.imei) {
+                    const imeiExistente = await DetallesBien.findOne({
+                        where: { identificador_unico: bien.imei },
+                    });
+
+                    if (!imeiExistente) {
+                        await DetallesBien.create(
+                            {
+                                bien_uuid: nuevoBien.uuid,
+                                identificador_unico: bien.imei,
+                            },
+                            { transaction }
+                        );
+                    }
+                } else {
+                    // Generar identificador único para cada unidad
+                    await DetallesBien.create(
+                        {
+                            bien_uuid: nuevoBien.uuid,
+                            identificador_unico: `${nuevoBien.uuid}-${uuidv4()}`,
+                        },
+                        { transaction }
+                    );
+                }
+            }
+
+            bienesGuardados.push({ bien: nuevoBien.toJSON(), stock: bien.cantidadStock });
         }
 
         await transaction.commit();
-        res.status(201).json({
-            message: 'Bienes creados exitosamente.',
-            bienes: bienesGuardados,
-        });
+        res.status(201).json({ message: 'Bienes procesados correctamente.', bienes: bienesGuardados });
     } catch (error) {
+        if (transaction) await transaction.rollback();
         console.error('Error al finalizar la creación de bienes:', error);
         res.status(500).json({ message: 'Error al registrar los bienes.', detalles: error.message });
     }
 };
+
+
+
+
 
 const subirFotosPorBien = async (req, res) => {
     console.log('Archivos recibidos en req.files:', req.files);

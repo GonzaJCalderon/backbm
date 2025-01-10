@@ -36,14 +36,14 @@ router.get('/:uuid', bienesController.obtenerBienPorUuid);
 
 
 // Actualizar un bien por su ID
-// Actualizar un bien por su UUID
+// Ruta para actualizar un bien
 router.put(
-  '/:uuid', // Cambiado de :id a :uuid
+  '/:uuid',
   verifyToken,
   verificarPermisos(['admin', 'usuario']),
-  bienesController.actualizarBien
+  uploadFotosBienMiddleware, // Middleware para procesar las fotos
+  bienesController.actualizarBien // Controlador que maneja la lógica de actualización
 );
-
 
 // Eliminar un bien por su ID
 router.delete('/:uuid', verifyToken, verificarPermisos(['admin']), bienesController.eliminarBien);
@@ -82,5 +82,7 @@ router.get('/bienes/marcas', verifyToken, bienesController.obtenerMarcas);
 // Obtener modelos por tipo y marca
 router.get('/bienes/modelos', verifyToken, bienesController.obtenerModelos);
 
+// Verificar si un IMEI ya existe
+router.get('/imei-exists/:imei', bienesController.verificarIMEI);
 
 module.exports = router;

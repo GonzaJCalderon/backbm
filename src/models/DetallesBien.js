@@ -22,6 +22,12 @@ module.exports = (sequelize, DataTypes) => {
         allowNull: false,
         unique: true,
       },
+      estado: {
+        type: DataTypes.STRING, // "disponible", "vendido", etc.
+        allowNull: false,
+        defaultValue: 'disponible',
+      },
+      
     },
     {
       tableName: 'detalles_bien', // Nombre explícito para evitar conflictos

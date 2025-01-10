@@ -199,8 +199,10 @@ const obtenerCompradores = async (req, res) => {
   }
 };
 
+
 const registerUsuarioPorTercero = async (req, res) => {
   const { dni, email, nombre, apellido, tipo, razonSocial, cuit, direccion } = req.body;
+  console.log('Datos recibidos en el backend:', req.body);
 
   if (!dni || !email || !nombre || !apellido) {
     return res.status(400).json({
@@ -208,7 +210,24 @@ const registerUsuarioPorTercero = async (req, res) => {
     });
   }
 
+  // Validar dirección
+  if (!direccion || !direccion.calle || !direccion.altura || !direccion.departamento) {
+    return res.status(400).json({
+      mensaje: 'La dirección debe incluir calle, altura y departamento.',
+    });
+  }
+
+  direccion.barrio = direccion.barrio || ''; // Valor por defecto para barrio
+
+  // Validar campos de personas jurídicas
+  if (tipo === 'juridica' && (!razonSocial || !cuit)) {
+    return res.status(400).json({
+      mensaje: 'Razón social y CUIT son obligatorios para personas jurídicas.',
+    });
+  }
+
   try {
+    // Verificar si el usuario ya existe
     const existingUser = await Usuario.findOne({ where: { email } });
 
     if (existingUser) {
@@ -218,6 +237,7 @@ const registerUsuarioPorTercero = async (req, res) => {
       });
     }
 
+    // Crear nuevo usuario
     const nuevoUsuario = await Usuario.create({
       uuid: uuidv4(),
       dni,
@@ -233,14 +253,22 @@ const registerUsuarioPorTercero = async (req, res) => {
       rolDefinitivo: 'usuario',
     });
 
-    const token = jwt.sign(
-      { id: nuevoUsuario.uuid },
-      process.env.JWT_SECRET || 'bienes_muebles',
-      { expiresIn: '24h' }
-    );
+    // Generar token para completar registro
+    let token;
+    try {
+      token = jwt.sign(
+        { id: nuevoUsuario.uuid },
+        process.env.JWT_SECRET || 'bienes_muebles',
+        { expiresIn: '24h' }
+      );
+      console.log('Token generado:', token);
+    } catch (error) {
+      console.error('Error al generar el token:', error.message);
+      return res.status(500).json({ mensaje: 'Error al generar el token.' });
+    }
 
-    // Enlace al componente de actualización
-    const resetLink = `${process.env.FRONTEND_URL}/usuarios/update-account/${token}`;
+    const resetLink = `${process.env.FRONTEND_URL}/usuarios/update-account/${encodeURIComponent(token)}`;
+    console.log('Enlace generado:', resetLink);
 
     const emailBody = `
       <p>Hola ${nombre},</p>
@@ -249,10 +277,17 @@ const registerUsuarioPorTercero = async (req, res) => {
       <p>Este enlace es válido por 24 horas.</p>
     `;
 
-    await enviarCorreo(email, 'Registro exitoso - Completa tu cuenta', emailBody, emailBody);
+    // Enviar correo
+    try {
+      await enviarCorreo(email, 'Registro exitoso - Completa tu cuenta', emailBody, emailBody);
+      console.log('Correo enviado correctamente.');
+    } catch (errMail) {
+      console.error('Error enviando correo:', errMail.message || errMail);
+      // Registrar el problema pero no interrumpir el flujo
+    }
 
     res.status(201).json({
-      mensaje: 'Usuario registrado con éxito. Se ha enviado un correo para completar su registro.',
+      mensaje: 'Usuario registrado con éxito. Verifica si el correo fue enviado.',
       usuario: nuevoUsuario,
     });
   } catch (error) {
@@ -271,32 +306,41 @@ const updateAccount = async (req, res) => {
   const { newPassword, nombre, apellido } = req.body;
 
   try {
-    // Decodificar el token y verificar si el usuario existe
+    // Decodificar el token
+    console.log('Token recibido en el backend:', token);
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    console.log('Token decodificado:', decoded);
+
+    // Buscar usuario
     const usuario = await Usuario.findOne({ where: { uuid: decoded.id, estado: 'pendiente' } });
 
     if (!usuario) {
       return res.status(404).json({ message: 'Usuario no encontrado o ya está activo.' });
     }
 
-    // Actualizar la información del usuario
+    // Actualizar usuario
     if (newPassword) {
       usuario.password = await bcrypt.hash(newPassword, 10);
     }
     if (nombre) usuario.nombre = nombre;
     if (apellido) usuario.apellido = apellido;
 
-    // Cambiar estado a "activo"
     usuario.estado = 'aprobado';
-
     await usuario.save();
 
     res.status(200).json({ message: 'Cuenta actualizada y activada exitosamente.' });
   } catch (error) {
-    console.error('Error al procesar el token:', error);
-    res.status(400).json({ message: 'Token inválido o expirado.' });
+    console.error('Error al procesar el token:', error.message);
+    if (error.name === 'JsonWebTokenError') {
+      return res.status(400).json({ message: 'Token inválido.' });
+    }
+    if (error.name === 'TokenExpiredError') {
+      return res.status(400).json({ message: 'El token ha expirado.' });
+    }
+    res.status(400).json({ message: 'Error al procesar el token.' });
   }
 };
+
 
 const resetPassword = async (req, res) => {
   const { token, newPassword } = req.body;
@@ -443,7 +487,7 @@ const obtenerUsuariosPorEstado = async (req, res) => {
   }
 
   try {
-    // Consultar usuarios con el estado especificado
+    // Consultar usuarios con el estado especificado, incluyendo bienes asociados
     const usuarios = await Usuario.findAll({
       where: { estado },
       attributes: [
@@ -462,6 +506,13 @@ const obtenerUsuariosPorEstado = async (req, res) => {
         'motivoRechazo',
         'createdAt',
         'updatedAt',
+      ],
+      include: [
+        {
+          model: Bien, // Modelo de bienes
+          as: 'bienes', // Alias definido en las asociaciones
+          attributes: ['uuid', 'tipo', 'modelo', 'marca', 'descripcion'], // Campos que necesitas
+        },
       ],
     });
 
@@ -518,6 +569,7 @@ const obtenerUsuariosPorEstado = async (req, res) => {
           direccion: direccionFormateada,
           rechazadoPor: rechazadoPorNombreApellido,
           aprobadoPor: aprobadoPorNombreApellido,
+          bienes: usuario.bienes, // Incluye los bienes asociados al usuario
         };
       })
     );

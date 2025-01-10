@@ -17,9 +17,10 @@ const corsOptions = {
 };
 app.use(cors(corsOptions));
 
-// Middlewares básicos
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+// Configuración de límites para solicitudes grandes
+app.use(express.json({ limit: '1gb' })); // Límite de 1GB para solicitudes JSON
+app.use(express.urlencoded({ limit: '1gb', extended: true })); // Límite de 1GB para formularios codificados
+
 app.use(cookieParser());
 try {
   console.log('Cargando rutas de bienes...');
@@ -46,15 +47,8 @@ try {
   console.log('Cargando rutas de Historial Cambios...');
   app.use('/historialcambios', require('./src/routes/HistorialCambios'));
 
-  
   console.log('Cargando rutas de Uploads...');
   app.use('/uploads', require('./src/routes/uploads'));
-
-  
-
-
-  
-
 
 } catch (error) {
   console.error('Error al cargar rutas:', error.message);
@@ -65,8 +59,6 @@ try {
   try {
     await sequelize.authenticate();
     console.log('Conexión a la base de datos exitosa');
-
-  
 
     await Usuario.sync({ alter: true }); // Luego sincroniza usuarios con la relación a roles
     console.log('Modelo Usuario sincronizado.');
@@ -98,7 +90,6 @@ try {
     console.error('Error durante la inicialización:', error);
   }
 })();
-
 
 // Middleware global de manejo de errores
 app.use((err, req, res, next) => {
