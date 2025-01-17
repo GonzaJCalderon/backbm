@@ -96,7 +96,7 @@ router.get('/dni', verifyToken, verificarPermisos(['admin', 'moderador']), usuar
 router.post('/register-usuario-por-tercero', usuarioController.registerUsuarioPorTercero);
 
 router.post('/update-account/:token', async (req, res) => {
-  const { token } = req.params; // Token recibido en la URL
+  const { token } = req.params; 
   const { newPassword, nombre, apellido } = req.body;
 
   console.log('Token recibido:', token);
@@ -104,33 +104,37 @@ router.post('/update-account/:token', async (req, res) => {
 
   try {
     // Verificamos el token recibido
-    const decoded = jwt.verify(token, 'bienes_muebles');  // Usando una clave secreta hardcodeada
-
+    const decoded = jwt.verify(token, 'bienes_muebles');
     console.log('Token decodificado:', decoded);
 
-    // Buscamos al usuario en la base de datos usando el UUID decodificado
-    const usuario = await Usuario.findOne({ where: { uuid: decoded.id } });
+    // IMPORTANTE: El token tiene userUuid en vez de id
+    const usuario = await Usuario.findOne({
+      where: { uuid: decoded.userUuid } 
+    });
 
     if (!usuario) {
       return res.status(404).json({ mensaje: 'Usuario no encontrado.' });
     }
 
-    // Si el usuario está en estado pendiente, no permitimos que se apruebe automáticamente
     if (usuario.estado === 'pendiente') {
       console.log('El usuario está en estado pendiente, no se cambiará a aprobado automáticamente.');
     }
 
     // Actualizar los datos del usuario
     if (newPassword) {
-      usuario.password = bcrypt.hashSync(newPassword, 10); // Hasheamos la nueva contraseña
+      usuario.password = bcrypt.hashSync(newPassword, 10);
     }
-    if (nombre) usuario.nombre = nombre;
-    if (apellido) usuario.apellido = apellido;
+    if (nombre) {
+      usuario.nombre = nombre;
+    }
+    if (apellido) {
+      usuario.apellido = apellido;
+    }
 
-    // No cambiamos el estado a 'aprobado', permaneciendo en 'pendiente'
-    usuario.estado = 'pendiente';  // Mantenemos el estado como 'pendiente'
+    // Mantenemos el estado como 'pendiente'
+    usuario.estado = 'pendiente';
 
-    await usuario.save(); // Guardamos los cambios en la base de datos
+    await usuario.save();
 
     return res.json({ mensaje: 'Cuenta actualizada exitosamente. El estado sigue siendo pendiente.' });
   } catch (error) {
@@ -138,7 +142,6 @@ router.post('/update-account/:token', async (req, res) => {
     return res.status(400).json({ mensaje: 'Token inválido o expirado.' });
   }
 });
-
 
 
 
@@ -164,36 +167,21 @@ router.delete('/:uuid/rolTemporal', verifyToken, verificarPermisos(['admin']), u
 // Ruta para aprobar un usuario
 router.put('/:uuid/aprobar', verifyToken, verificarPermisos(['admin']), async (req, res) => {
   const { uuid } = req.params;
-  const { estado, fechaAprobacion, aprobadoPor, aprobadoPorNombre } = req.body;
+  const { fechaAprobacion, aprobadoPor, aprobadoPorNombre } = req.body;
 
   if (!aprobadoPor || !aprobadoPorNombre) {
     return res.status(400).json({ message: 'Los campos aprobadoPor y aprobadoPorNombre son obligatorios.' });
   }
 
-  try {
-    const usuario = await Usuario.findOne({ where: { uuid } });
+  req.body.estado = 'aprobado';
+  req.body.fechaAprobacion = fechaAprobacion || new Date().toISOString();
 
-    if (!usuario) {
-      return res.status(404).json({ message: 'Usuario no encontrado' });
-    }
-
-    usuario.estado = estado;
-    usuario.fechaAprobacion = fechaAprobacion;
-    usuario.aprobadoPor = aprobadoPor;
-    usuario.aprobadoPorNombre = aprobadoPorNombre;
-
-    await usuario.save();
-
-    res.status(200).json({ message: 'Usuario aprobado correctamente', usuario });
-  } catch (error) {
-    res.status(500).json({ message: 'Error interno del servidor.' });
-  }
+  await usuarioController.cambiarEstadoUsuario(req, res);
 });
 
-
 // Ruta para rechazar un usuario
-
 router.put('/:uuid/rechazar', verifyToken, verificarPermisos(['admin']), async (req, res) => {
+  console.log('Datos recibidos en /rechazar:', req.body);
   const { motivoRechazo } = req.body;
 
   if (!motivoRechazo) {
@@ -202,7 +190,7 @@ router.put('/:uuid/rechazar', verifyToken, verificarPermisos(['admin']), async (
 
   req.body.estado = 'rechazado';
   req.body.fechaRechazo = new Date().toISOString();
-  req.body.rechazadoPor = req.user?.uuid; // Asigna el usuario autenticado como rechazador
+  req.body.rechazadoPor = req.user?.uuid; // Usuario autenticado que rechaza al usuario
 
   await usuarioController.cambiarEstadoUsuario(req, res);
 });
@@ -230,7 +218,7 @@ router.patch('/usuarios/:uuid/estado', usuarioController.cambiarEstadoUsuario);
 
 router.patch('/usuarios/:uuid', usuarioController.actualizarUsuario);
 
-router.put('/usuarios/:uuid/reintentar', usuarioController.reintentarRegistro);
+router.put('/:uuid/reintentar', usuarioController.reintentarRegistro);
 
 
 router.post('/check', usuarioController.checkExistingUser);
@@ -282,9 +270,14 @@ router.put('/:uuid/stock', verifyToken, verificarPermisos(['admin']), async (req
 });
 
 // Ruta para reenviar datos de usuario rechazado
+// Ruta para reenviar datos de usuario rechazado
 router.put('/:uuid/reenviar', async (req, res) => {
   const { uuid } = req.params;
   const { nombre, apellido, email, dni } = req.body;
+
+  if (!nombre || !apellido || !email || !dni) {
+    return res.status(400).json({ message: 'Todos los campos son obligatorios.' });
+  }
 
   try {
       const usuario = await Usuario.findOne({ where: { uuid } });
@@ -293,6 +286,7 @@ router.put('/:uuid/reenviar', async (req, res) => {
           return res.status(404).json({ message: 'El usuario no está en estado rechazado o no existe.' });
       }
 
+      // Actualizar datos del usuario
       usuario.nombre = nombre;
       usuario.apellido = apellido;
       usuario.email = email;
@@ -302,9 +296,39 @@ router.put('/:uuid/reenviar', async (req, res) => {
 
       await usuario.save();
 
+      // Generar token y enlace
+      const jwt = require('jsonwebtoken');
+      const token = jwt.sign({ uuid: usuario.uuid }, process.env.JWT_SECRET, { expiresIn: '1h' });
+      const updateAccountLink = `${process.env.FRONTEND_URL}/update-account/${token}`;
+
+      // Enviar correo
+      const enviarCorreo = require('../utils/enviarCorreo');
+      const subject = 'Solicitud de actualización de cuenta rechazada';
+      const text = `
+        Hola ${nombre},
+
+        Tu solicitud de registro fue rechazada debido a que algunos datos no cumplían con los requisitos.
+
+        Por favor, haz clic en el siguiente enlace para actualizar tu información:
+        ${updateAccountLink}
+
+        Atentamente,
+        El equipo de Bienes Muebles.
+      `;
+      const html = `
+        <p>Hola ${nombre},</p>
+        <p>Tu solicitud de registro fue rechazada debido a que algunos datos no cumplían con los requisitos.</p>
+        <p>Por favor, haz clic en el siguiente enlace para actualizar tu información:</p>
+        <a href="${updateAccountLink}" style="color: blue; font-weight: bold;">Actualizar Cuenta</a>
+        <p>Atentamente,<br>El equipo de Bienes Muebles.</p>
+      `;
+
+      await enviarCorreo(email, subject, text, html);
+
       res.status(200).json({
-          message: 'Solicitud reenviada correctamente.',
+          message: 'Solicitud reenviada correctamente. Revisa tu correo electrónico para actualizar la cuenta.',
           usuario,
+          link: updateAccountLink, // Para depuración
       });
   } catch (error) {
       console.error('Error al reenviar solicitud:', error);

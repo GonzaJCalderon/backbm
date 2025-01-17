@@ -19,95 +19,136 @@ const { v4: uuidv4 } = require('uuid');
 
 // Crear un nuevo usuario
 // Crear un nuevo usuario
+const path = require('path');
+
 const crearUsuario = async (req, res) => {
   try {
-    const { nombre, apellido, email, dni, cuit, direccion, password, rolDefinitivo, tipo } = req.body;
+    const { nombre, apellido, email, password, tipo, dni, direccion } = req.body;
 
     // Validar campos obligatorios
-    if (!nombre || !email || !password || !tipo) {
-      return res.status(400).json({ message: 'Nombre, correo electrónico, contraseña y tipo son obligatorios.' });
+    if (!nombre || !apellido || !email || !password || !tipo || !dni || !direccion) {
+      return res.status(400).json({
+        message: 'Todos los campos obligatorios deben ser proporcionados (nombre, apellido, email, password, tipo, dni, dirección).',
+      });
     }
 
-    // Normalizar el email
-    const emailNormalizado = email.trim().toLowerCase();
-
-    // Verificar si el usuario ya existe
-    const usuarioExistente = await Usuario.findOne({ where: { email: emailNormalizado } });
-    if (usuarioExistente) {
-      return res.status(400).json({ message: 'El usuario ya existe con ese correo electrónico.' });
+    // Validar dirección
+    if (
+      typeof direccion !== 'object' ||
+      !direccion.calle ||
+      !direccion.altura ||
+      !direccion.departamento
+    ) {
+      return res.status(400).json({
+        message: 'La dirección debe incluir calle, altura y departamento.',
+      });
     }
 
-    // Validar el tipo de usuario
-    const tiposValidos = ['fisica', 'juridica'];
-    if (!tiposValidos.includes(tipo)) {
-      return res.status(400).json({ message: 'El tipo debe ser "fisica" o "juridica".' });
-    }
-
-    // Validar la dirección
-    if (!direccion || typeof direccion !== 'object') {
-      return res.status(400).json({ message: 'La dirección debe ser un objeto válido.' });
-    }
-
-    const { calle, altura, departamento, barrio } = direccion;
-    if (!calle || !altura || !departamento) {
-      return res.status(400).json({ message: 'La dirección debe incluir calle, altura y departamento.' });
-    }
-
-    // Validar CUIT o DNI según el tipo
-    if (tipo === 'fisica' && !dni) {
-      return res.status(400).json({ message: 'El DNI es obligatorio para personas físicas.' });
-    }
-
-    if (tipo === 'juridica' && !cuit) {
-      return res.status(400).json({ message: 'El CUIT es obligatorio para personas jurídicas.' });
-    }
-
-    // Validar que CUIT y DNI sean números
-    if (dni && isNaN(dni)) {
-      return res.status(400).json({ message: 'El DNI debe ser un número válido.' });
-    }
-
-    if (cuit && !/^\d{11}$/.test(cuit)) {
-      return res.status(400).json({ message: 'El CUIT debe ser un número de 11 dígitos.' });
-    }
-
-    // Asignar rol por defecto si no se especifica
-    const rolesValidos = ['admin', 'usuario', 'moderador'];
-    const rolAsignado = rolesValidos.includes(rolDefinitivo) ? rolDefinitivo : 'usuario';
-
-    // Hashear la contraseña
-    const salt = await bcrypt.genSalt(10);
-    const passwordHasheada = await bcrypt.hash(password, salt);
-
-    // Crear el usuario
-    const usuario = await Usuario.create({
-      nombre,
-      apellido,
-      email: emailNormalizado,
-      dni,
-      cuit,
-      direccion: { calle, altura, departamento, barrio: barrio || null },
-      password: passwordHasheada,
-      rolDefinitivo: rolAsignado,
-      tipo,
+    // Verificar si el usuario ya existe (por email o DNI)
+    const usuarioExistente = await Usuario.findOne({
+      where: {
+        [Op.or]: [{ email }, { dni }],
+      },
     });
 
-    // Excluir la contraseña del objeto de respuesta
-    const usuarioSinPassword = usuario.toJSON();
-    delete usuarioSinPassword.password;
-
-    res.status(201).json(usuarioSinPassword);
-  } catch (error) {
-    console.error('Error al crear usuario:', error);
-
-    // Manejar errores específicos
-    if (error.name === 'SequelizeValidationError') {
-      return res.status(400).json({ message: error.errors.map(err => err.message).join(', ') });
+    if (usuarioExistente) {
+      return res.status(400).json({
+        message: 'Ya existe un usuario con este correo electrónico o DNI.',
+      });
     }
 
-    res.status(500).json({ message: 'Error interno del servidor.' });
+    // Hashear la contraseña
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    // Crear el nuevo usuario
+  // Crear el nuevo usuario
+const nuevoUsuario = await Usuario.create({
+  nombre,
+  apellido,
+  email,
+  password: hashedPassword,
+  tipo,
+  dni,
+  direccion, // Enviar el objeto directamente
+  estado: 'pendiente', // Estado inicial
+});
+
+
+    // Ruta absoluta al logo
+    const logoPath = path.resolve(__dirname, '..', 'assets', 'logoprueba.png');
+
+    // Diseño HTML actualizado
+    const htmlContent = `
+      <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+        <table style="width: 100%; max-width: 600px; margin: auto; border: 1px solid #ddd; border-radius: 8px; box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1); overflow: hidden;">
+          <thead>
+            <tr>
+              <th style="background-color: #4CAF50; color: #fff; padding: 16px; text-align: center;">
+                <h1 style="margin: 0;">¡Bienvenido a Registro de Bienes!</h1>
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td style="padding: 16px; text-align: center;">
+                <img 
+                  src="cid:logo" 
+                  alt="Logo Registro de Bienes" 
+                  style="max-width: 150px; margin-bottom: 16px;" />
+                <p>Hola <strong>${nombre}</strong>,</p>
+                <p>
+                  ¡Estamos encantados de que te unas a nuestra plataforma! Tu solicitud de registro está 
+                  <strong>pendiente de revisión</strong>. Pronto te informaremos sobre el estado de tu cuenta.
+                </p>
+                <p>
+                  Mientras tanto, si tienes alguna duda o consulta, no dudes en contactarnos. Estamos aquí para ayudarte.
+                </p>
+                <p style="color: #888; font-size: 0.9em; margin-top: 20px;">
+                  Atentamente,<br>El equipo de Registro de Bienes.
+                </p>
+              </td>
+            </tr>
+          </tbody>
+          <tfoot>
+            <tr>
+              <td style="background-color: #f4f4f4; color: #666; font-size: 0.8em; text-align: center;">
+                © 2025 Registro de Bienes, Todos los derechos reservados.
+              </td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    `;
+
+    // Enviar correo con el diseño y la imagen
+    await enviarCorreo(
+      email,
+      'Solicitud Pendiente en Registro de Bienes',
+      `Hola ${nombre}, tu solicitud está pendiente de revisión.`,
+      htmlContent,
+      [
+        {
+          filename: 'logoprueba.png',
+          path: logoPath,
+          cid: 'logo', // ID de contenido para referenciar en el HTML
+        },
+      ]
+    );
+
+    res.status(201).json({
+      message: 'Usuario creado y correo enviado exitosamente.',
+      usuario: nuevoUsuario,
+    });
+  } catch (error) {
+    console.error('Error al crear usuario o enviar correo:', error);
+    res.status(500).json({
+      message: 'Error interno del servidor.',
+      detalles: error.message,
+    });
   }
 };
+
+
 
 
 
@@ -201,45 +242,36 @@ const obtenerCompradores = async (req, res) => {
 
 
 const registerUsuarioPorTercero = async (req, res) => {
-  const { dni, email, nombre, apellido, tipo, razonSocial, cuit, direccion } = req.body;
-  console.log('Datos recibidos en el backend:', req.body);
-
-  if (!dni || !email || !nombre || !apellido) {
-    return res.status(400).json({
-      mensaje: 'Faltan campos obligatorios. Asegúrate de enviar dni, email, nombre y apellido.',
-    });
-  }
-
-  // Validar dirección
-  if (!direccion || !direccion.calle || !direccion.altura || !direccion.departamento) {
-    return res.status(400).json({
-      mensaje: 'La dirección debe incluir calle, altura y departamento.',
-    });
-  }
-
-  direccion.barrio = direccion.barrio || ''; // Valor por defecto para barrio
-
-  // Validar campos de personas jurídicas
-  if (tipo === 'juridica' && (!razonSocial || !cuit)) {
-    return res.status(400).json({
-      mensaje: 'Razón social y CUIT son obligatorios para personas jurídicas.',
-    });
-  }
-
   try {
-    // Verificar si el usuario ya existe
-    const existingUser = await Usuario.findOne({ where: { email } });
+    const { dni, email, nombre, apellido, tipo, razonSocial, cuit, direccion } = req.body;
 
-    if (existingUser) {
-      return res.status(200).json({
-        mensaje: 'El usuario ya existe en el sistema.',
-        usuario: existingUser,
+    if (!dni || !email || !nombre || !apellido) {
+      return res.status(400).json({
+        mensaje: 'Faltan campos obligatorios: DNI, email, nombre y apellido son requeridos.',
       });
     }
 
-    // Crear nuevo usuario
+    const existingUserByEmail = await Usuario.findOne({ where: { email } });
+    if (existingUserByEmail) {
+      return res.status(400).json({
+        mensaje: 'El email ya está registrado. Intenta con otro correo electrónico.',
+      });
+    }
+
+    const existingUserByDNI = await Usuario.findOne({ where: { dni } });
+    if (existingUserByDNI) {
+      return res.status(400).json({
+        mensaje: 'El DNI ya está registrado.',
+      });
+    }
+
+    const defaultPassword = await bcrypt.hash('temporal_' + Date.now(), 10);
+
+    // Generar el UUID manualmente con uuidv4
+    const userUuid = uuidv4();
+
     const nuevoUsuario = await Usuario.create({
-      uuid: uuidv4(),
+      uuid: userUuid, // Establecer manualmente el UUID
       dni,
       email,
       nombre,
@@ -248,96 +280,115 @@ const registerUsuarioPorTercero = async (req, res) => {
       razonSocial: tipo === 'juridica' ? razonSocial : null,
       cuit,
       direccion,
-      password: await bcrypt.hash('default_password', 10),
       estado: 'pendiente',
-      rolDefinitivo: 'usuario',
+      password: defaultPassword,
     });
 
-    // Generar token para completar registro
-    let token;
-    try {
-      token = jwt.sign(
-        { id: nuevoUsuario.uuid },
-        process.env.JWT_SECRET || 'bienes_muebles',
-        { expiresIn: '24h' }
-      );
-      console.log('Token generado:', token);
-    } catch (error) {
-      console.error('Error al generar el token:', error.message);
-      return res.status(500).json({ mensaje: 'Error al generar el token.' });
-    }
+    const token = jwt.sign(
+      { userUuid: nuevoUsuario.uuid }, // Asegúrate de que el uuid está presente aquí
+      process.env.JWT_SECRET,
+      { expiresIn: '1d' }
+    );
+    
+    console.log('Token generado:', token);
+    console.log('Payload utilizado:', { userUuid: nuevoUsuario.uuid });
+    
 
-    const resetLink = `${process.env.FRONTEND_URL}/usuarios/update-account/${encodeURIComponent(token)}`;
-    console.log('Enlace generado:', resetLink);
+    const enlace = `${process.env.FRONTEND_URL}/usuarios/update-account/${token}`;
 
-    const emailBody = `
-      <p>Hola ${nombre},</p>
-      <p>Has sido registrado por un tercero. Para completar tu registro y cambiar tu contraseña, haz clic en el siguiente enlace:</p>
-      <a href="${resetLink}">Completar registro</a>
-      <p>Este enlace es válido por 24 horas.</p>
+    const htmlContent = `
+      <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+        <h1>¡Bienvenido, ${nombre}!</h1>
+        <p>Has sido registrado en nuestra plataforma.</p>
+        <p>Para completar tu registro y actualizar tu contraseña, haz clic en el siguiente enlace:</p>
+        <a href="${enlace}" style="color: #1e88e5; text-decoration: none; font-weight: bold;">Actualizar Cuenta</a>
+        <p>Si no solicitaste este registro, ignora este mensaje.</p>
+      </div>
     `;
 
-    // Enviar correo
-    try {
-      await enviarCorreo(email, 'Registro exitoso - Completa tu cuenta', emailBody, emailBody);
-      console.log('Correo enviado correctamente.');
-    } catch (errMail) {
-      console.error('Error enviando correo:', errMail.message || errMail);
-      // Registrar el problema pero no interrumpir el flujo
-    }
+    const logoPath = path.resolve(__dirname, '..', 'assets', 'logoprueba.png');
+
+    await enviarCorreo(
+      email,
+      'Completa tu registro',
+      `Hola ${nombre}, completa tu registro.`,
+      htmlContent,
+      [
+        {
+          filename: 'logoprueba.png',
+          path: logoPath,
+          cid: 'logo',
+        },
+      ]
+    );
 
     res.status(201).json({
-      mensaje: 'Usuario registrado con éxito. Verifica si el correo fue enviado.',
+      mensaje: 'Usuario registrado y correo enviado con éxito.',
       usuario: nuevoUsuario,
     });
   } catch (error) {
-    console.error('Error al registrar usuario por tercero:', error.message);
+    console.error('Error al registrar usuario por tercero:', error);
     res.status(500).json({
       mensaje: 'Error interno al registrar el usuario.',
       detalles: error.message,
     });
   }
-};
-
-
-
+}
 const updateAccount = async (req, res) => {
-  const { token } = req.params; // Token recibido en la URL
-  const { newPassword, nombre, apellido } = req.body;
+  const { token } = req.params; // Extrae el token de los parámetros de la URL
 
   try {
-    // Decodificar el token
-    console.log('Token recibido en el backend:', token);
+    // Verificar y decodificar el token
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     console.log('Token decodificado:', decoded);
 
-    // Buscar usuario
-    const usuario = await Usuario.findOne({ where: { uuid: decoded.id, estado: 'pendiente' } });
+    // Extraer la propiedad userUuid del token
+    const { userUuid } = decoded; 
+    if (!userUuid) {
+      return res.status(400).json({ mensaje: 'Token inválido: no contiene UUID.' });
+    }
+
+    console.log('UUID decodificado:', userUuid);
+
+    // Buscar al usuario en la base de datos usando el userUuid
+    // -- Ajusta "userUuid" en el WHERE por el nombre de la columna de tu tabla (o modelo).
+    //    Si tu columna se llama "uuid", entonces usa: { where: { uuid: userUuid } }
+    const usuario = await Usuario.findOne({ where: { userUuid } });
+    console.log('Usuario encontrado:', usuario);
 
     if (!usuario) {
-      return res.status(404).json({ message: 'Usuario no encontrado o ya está activo.' });
+      return res.status(404).json({ mensaje: 'Usuario no encontrado.' });
     }
 
-    // Actualizar usuario
-    if (newPassword) {
-      usuario.password = await bcrypt.hash(newPassword, 10);
-    }
-    if (nombre) usuario.nombre = nombre;
-    if (apellido) usuario.apellido = apellido;
+    // Actualizar datos del usuario
+    const { nombre, apellido, newPassword } = req.body;
 
-    usuario.estado = 'aprobado';
+    if (!nombre || !apellido || !newPassword) {
+      return res.status(400).json({ mensaje: 'Nombre, apellido y contraseña son obligatorios.' });
+    }
+
+    // Asignar valores
+    usuario.nombre = nombre;
+    usuario.apellido = apellido;
+    usuario.password = await bcrypt.hash(newPassword, 10);
+    usuario.estado = 'aprobado'; // Cambia el estado si tu lógica lo requiere
+
+    // Guardar cambios
     await usuario.save();
 
-    res.status(200).json({ message: 'Cuenta actualizada y activada exitosamente.' });
+    return res.status(200).json({ mensaje: 'Cuenta actualizada con éxito.' });
+
   } catch (error) {
-    console.error('Error al procesar el token:', error.message);
-    if (error.name === 'JsonWebTokenError') {
-      return res.status(400).json({ message: 'Token inválido.' });
-    }
+    console.error('Error al procesar el token:', error);
+
     if (error.name === 'TokenExpiredError') {
-      return res.status(400).json({ message: 'El token ha expirado.' });
+      return res.status(401).json({ mensaje: 'Token expirado.' });
     }
-    res.status(400).json({ message: 'Error al procesar el token.' });
+
+    return res.status(400).json({
+      mensaje: 'Token inválido o error interno.',
+      detalles: error.message
+    });
   }
 };
 
@@ -395,51 +446,128 @@ const aprobarUsuario = async (req, res) => {
   }
 };
 
-
-// Aprobar o rechazar usuarios
-
 const cambiarEstadoUsuario = async (req, res) => {
-  const { uuid } = req.params;
-  const { estado, fechaAprobacion, aprobadoPor, motivoRechazo, fechaRechazo, rechazadoPor } = req.body;
+  const { uuid } = req.params; // Extraer UUID del usuario desde la ruta
+  const {
+    estado,
+    fechaAprobacion,
+    aprobadoPor,
+    motivoRechazo,
+    fechaRechazo,
+    rechazadoPor,
+  } = req.body; // Extraer datos del payload
+
+  console.log(`\n=== Cambiar estado del usuario ===`);
+  console.log(`UUID recibido: ${uuid}`);
+  console.log('Payload recibido:', req.body);
 
   try {
+    // Buscar usuario en la base de datos
+    console.log(`Buscando usuario con UUID: ${uuid}`);
     const usuario = await Usuario.findOne({ where: { uuid } });
-
     if (!usuario) {
+      console.error(`Usuario con UUID ${uuid} no encontrado`);
       return res.status(404).json({ message: 'Usuario no encontrado' });
     }
 
+    console.log('Usuario encontrado:', usuario);
+
+    // Actualizar estado según la acción
+    console.log(`Actualizando estado del usuario a: ${estado}`);
     usuario.estado = estado;
 
-    if (estado === 'rechazado') {
-      usuario.fechaRechazo = fechaRechazo || new Date().toISOString();
-      usuario.rechazadoPor = rechazadoPor; // Registrar quién lo rechazó
-      usuario.motivoRechazo = motivoRechazo;
+    if (estado === 'aprobado') {
+      console.log('Procesando aprobación...');
+      usuario.fechaAprobacion = fechaAprobacion || new Date().toISOString();
+      usuario.aprobadoPor = aprobadoPor;
 
-      // Opcional: enviar correo de notificación
+      if (usuario.email) {
+        console.log(`Enviando correo de aprobación a: ${usuario.email}`);
+        const subject = 'Su cuenta ha sido aprobada';
+        const text = `Hola ${usuario.nombre},
+
+Su cuenta ha sido aprobada correctamente.
+
+Atentamente,
+El equipo de Bienes Muebles`;
+        try {
+          await enviarCorreo(usuario.email, subject, text, null);
+          console.log(`Correo de aprobación enviado a: ${usuario.email}`);
+        } catch (emailError) {
+          console.error('Error al enviar correo de aprobación:', emailError);
+        }
+      }
     }
 
-    await usuario.save();
+    if (estado === 'rechazado') {
+      console.log('Procesando rechazo...');
+      usuario.fechaRechazo = fechaRechazo || new Date().toISOString();
+      usuario.rechazadoPor = rechazadoPor;
+      usuario.motivoRechazo = motivoRechazo;
+    
+      if (usuario.email) {
+        console.log(`Enviando correo de rechazo a: ${usuario.email}`);
+        const subject = 'Su cuenta ha sido rechazada';
+    
+        // Generar enlace para reenviar el registro
+        const reintentarRegistroLink = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/usuarios/${usuario.uuid}/reintentar`;
+    
+        const text = `Hola ${usuario.nombre},
+    
+    Lamentamos informarle que su cuenta ha sido rechazada.
+    Motivo: "${motivoRechazo}"
+    
+    Puede reenviar su solicitud haciendo clic en el siguiente enlace:
+    ${reintentarRegistroLink}
+    
+    Atentamente,
+    El equipo de Bienes Muebles`;
+    
+        const html = `
+          <p>Hola ${usuario.nombre},</p>
+          <p>Lamentamos informarle que su cuenta ha sido rechazada.</p>
+          <blockquote style="color: red;">"${motivoRechazo}"</blockquote>
+          <p>Puede reenviar su solicitud haciendo clic en el siguiente enlace:</p>
+          <a href="${reintentarRegistroLink}" style="color: blue; font-weight: bold;">Reenviar Registro</a>
+          <p>Atentamente,<br>El equipo de Bienes Muebles</p>
+        `;
+    
+        try {
+          await enviarCorreo(usuario.email, subject, text, html);
+          console.log(`Correo de rechazo enviado a: ${usuario.email}`);
+        } catch (emailError) {
+          console.error('Error al enviar correo de rechazo:', emailError);
+        }
+      }
+    }
+    
 
-    res.status(200).json({
+    // Guardar cambios en la base de datos
+    console.log('Guardando cambios en la base de datos...');
+    await usuario.save();
+    console.log(`Usuario ${uuid} actualizado a estado ${estado}`);
+
+    // Responder al cliente con éxito
+    return res.status(200).json({
       message: `Usuario ${estado} correctamente`,
       usuario,
     });
   } catch (error) {
-    console.error('Error al cambiar estado del usuario:', error.message);
-    res.status(500).json({ message: 'Error interno al cambiar estado del usuario.' });
+    // Capturar errores generales
+    console.error('Error al cambiar estado del usuario:', error);
+    return res.status(500).json({ message: 'Error interno al cambiar estado del usuario.' });
   }
 };
 
 
-
-
-
 const reintentarRegistro = async (req, res) => {
   const { uuid } = req.params;
-  const { nombre, apellido, email, dni, otrosDatos } = req.body;
+  const { nombre, apellido, email, dni, direccion } = req.body;
 
   try {
+    console.log('UUID recibido:', uuid);
+    console.log('Datos recibidos:', req.body);
+
     const usuario = await Usuario.findOne({ where: { uuid } });
 
     if (!usuario) {
@@ -450,33 +578,36 @@ const reintentarRegistro = async (req, res) => {
       return res.status(400).json({ message: 'Solo los usuarios rechazados pueden reenviar su registro.' });
     }
 
-    // Actualizar los datos del usuario
-    usuario.nombre = nombre;
-    usuario.apellido = apellido;
-    usuario.email = email;
-    usuario.dni = dni;
-    Object.assign(usuario, otrosDatos); // Actualizar otros datos si es necesario
+    // Asignar datos obligatorios
+    usuario.nombre = nombre || usuario.nombre;
+    usuario.apellido = apellido || usuario.apellido;
+    usuario.email = email || usuario.email;
+    usuario.dni = dni || usuario.dni;
 
-    // Cambiar estado a "pendiente"
+    // Verifica si hay un campo "direccion"
+    if (direccion) {
+      usuario.calle = direccion.calle || usuario.calle;
+      usuario.altura = direccion.altura || usuario.altura;
+    }
+
     usuario.estado = 'pendiente';
-    usuario.motivoRechazo = null; // Eliminar motivo de rechazo para la nueva revisión
+    usuario.motivoRechazo = null;
 
     await usuario.save();
 
+    console.log('Usuario actualizado:', usuario);
     res.status(200).json({
       message: 'Registro reenviado correctamente para su revisión.',
       usuario,
     });
   } catch (error) {
-    console.error('Error al reenviar registro:', error.message);
+    console.error('Error al reenviar registro:', error);
     res.status(500).json({ message: 'Error interno al reenviar registro.' });
   }
 };
 
 
 
-// Obtener usuarios por estado
-// Obtener usuarios por estado
 // Obtener usuarios por estado
 const obtenerUsuariosPorEstado = async (req, res) => {
   const { estado } = req.query;
@@ -487,7 +618,7 @@ const obtenerUsuariosPorEstado = async (req, res) => {
   }
 
   try {
-    // Consultar usuarios con el estado especificado, incluyendo bienes asociados
+    // Consultar usuarios con el estado especificado
     const usuarios = await Usuario.findAll({
       where: { estado },
       attributes: [
@@ -506,13 +637,6 @@ const obtenerUsuariosPorEstado = async (req, res) => {
         'motivoRechazo',
         'createdAt',
         'updatedAt',
-      ],
-      include: [
-        {
-          model: Bien, // Modelo de bienes
-          as: 'bienes', // Alias definido en las asociaciones
-          attributes: ['uuid', 'tipo', 'modelo', 'marca', 'descripcion'], // Campos que necesitas
-        },
       ],
     });
 
@@ -569,7 +693,6 @@ const obtenerUsuariosPorEstado = async (req, res) => {
           direccion: direccionFormateada,
           rechazadoPor: rechazadoPorNombreApellido,
           aprobadoPor: aprobadoPorNombreApellido,
-          bienes: usuario.bienes, // Incluye los bienes asociados al usuario
         };
       })
     );
@@ -583,6 +706,9 @@ const obtenerUsuariosPorEstado = async (req, res) => {
     });
   }
 };
+
+
+
 
 const actualizarUsuario = async (req, res) => {
   const { uuid } = req.params;
@@ -772,34 +898,31 @@ const obtenerRolTemporal = async (req, res) => {
     res.status(500).json({ message: 'Error al obtener rol temporal.', error: error.message });
   }
 };
-
 const checkExistingUser = async (req, res) => {
-  const { dni, email } = req.body;
+  const { dni, nombre, apellido } = req.body;
 
   try {
-    const usuario = await Usuario.findOne({
-      where: {
-        [Op.or]: [{ dni }, { email }],
-      },
-    });
+    if (!dni || !nombre || !apellido) {
+      return res.status(400).json({ mensaje: "DNI, nombre y apellido son requeridos." });
+    }
+
+    const usuario = await Usuario.findOne({ where: { dni, nombre, apellido } });
 
     if (usuario) {
       return res.status(200).json({
         existe: true,
         usuario,
-        mensaje: 'El usuario ya existe.',
+        mensaje: "El usuario ya existe.",
       });
     }
 
-    return res.status(200).json({
-      existe: false,
-      mensaje: 'Usuario no encontrado.',
-    });
+    return res.status(200).json({ existe: false, mensaje: "Usuario no encontrado." });
   } catch (error) {
-    console.error('Error en checkExistingUser:', error.message);
-    res.status(500).json({ message: 'Error al verificar el usuario.', detalles: error.message });
+    console.error("Error en checkExistingUser:", error.message);
+    res.status(500).json({ mensaje: "Error al verificar el usuario.", detalles: error.message });
   }
 };
+
 
 
 

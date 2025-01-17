@@ -429,7 +429,6 @@ const registrarTransaccion = async (req, res) => {
 const obtenerTransaccionesPorUsuario = async (req, res) => {
   const { uuid } = req.params;
 
-  // Validación del parámetro UUID
   if (!uuid) {
     return res.status(400).json({ message: 'El UUID del usuario es obligatorio.' });
   }
@@ -445,46 +444,32 @@ const obtenerTransaccionesPorUsuario = async (req, res) => {
         {
           model: Bien,
           as: 'bienTransaccion',
-          attributes: ['descripcion', 'marca', 'modelo', 'precio', 'fotos', 'tipo'], // Incluye el campo 'tipo'
+          attributes: ['descripcion', 'marca', 'modelo', 'precio', 'fotos', 'tipo'],
+          include: [
+            {
+              model: DetallesBien,
+              as: 'detalles',
+              attributes: ['identificador_unico', 'estado'],
+            },
+          ],
         },
         {
           model: Usuario,
           as: 'compradorTransaccion',
-          attributes: [
-            'uuid',
-            'nombre',
-            'apellido',
-            'dni',
-            'cuit',
-            'email',
-            'direccion',
-            'tipo',
-          ], // Incluye ambos campos y el tipo
+          attributes: ['uuid', 'nombre', 'apellido', 'dni', 'cuit', 'email', 'direccion', 'tipo'],
         },
         {
           model: Usuario,
           as: 'vendedorTransaccion',
-          attributes: [
-            'uuid',
-            'nombre',
-            'apellido',
-            'dni',
-            'cuit',
-            'email',
-            'direccion',
-            'tipo',
-          ], // Incluye ambos campos y el tipo
+          attributes: ['uuid', 'nombre', 'apellido', 'dni', 'cuit', 'email', 'direccion', 'tipo'],
         },
       ],
     });
 
-    // Verificar si hay transacciones
     if (transacciones.length === 0) {
-      // No se encontraron transacciones, pero se devuelve una respuesta exitosa con un array vacío
       return res.json({ message: 'No se encontraron transacciones para este usuario.', transacciones: [] });
     }
 
-    // Respuesta exitosa con las transacciones encontradas
     res.json(transacciones);
   } catch (error) {
     console.error('Error al obtener transacciones:', error.message);
@@ -494,6 +479,7 @@ const obtenerTransaccionesPorUsuario = async (req, res) => {
     });
   }
 };
+
 
 
 /**
