@@ -19,60 +19,136 @@ const { v4: uuidv4 } = require('uuid');
 
 // Crear un nuevo usuario
 // Crear un nuevo usuario
+const path = require('path');
+
 const crearUsuario = async (req, res) => {
   try {
-    const { nombre, apellido, email, dni, cuit, direccion, password, rolDefinitivo, tipo } = req.body;
+    const { nombre, apellido, email, password, tipo, dni, direccion } = req.body;
 
     // Validar campos obligatorios
-    if (!nombre || !email || !password || !tipo) {
-      return res.status(400).json({ message: 'Nombre, correo electrónico, contraseña y tipo son obligatorios.' });
+    if (!nombre || !apellido || !email || !password || !tipo || !dni || !direccion) {
+      return res.status(400).json({
+        message: 'Todos los campos obligatorios deben ser proporcionados (nombre, apellido, email, password, tipo, dni, dirección).',
+      });
     }
 
-    // Normalizar el email
-    const emailNormalizado = email.trim().toLowerCase();
-
-    // Verificar si el usuario ya existe
-    const usuarioExistente = await Usuario.findOne({ where: { email: emailNormalizado } });
-    if (usuarioExistente) {
-      return res.status(400).json({ message: 'El usuario ya existe con ese correo electrónico.' });
+    // Validar dirección
+    if (
+      typeof direccion !== 'object' ||
+      !direccion.calle ||
+      !direccion.altura ||
+      !direccion.departamento
+    ) {
+      return res.status(400).json({
+        message: 'La dirección debe incluir calle, altura y departamento.',
+      });
     }
 
-    // Validar tipo
-    const tiposValidos = ['fisica', 'juridica'];
-    if (!tiposValidos.includes(tipo)) {
-      return res.status(400).json({ message: 'El tipo debe ser "fisica" o "juridica".' });
-    }
-
-    // Asignar rol por defecto si no se especifica
-    const rolesValidos = ['admin', 'usuario', 'moderador'];
-    const rolAsignado = rolesValidos.includes(rolDefinitivo) ? rolDefinitivo : 'usuario';
-
-    // Hashear la contraseña
-    const salt = await bcrypt.genSalt(10);
-    const passwordHasheada = await bcrypt.hash(password, salt);
-
-    // Crear el usuario
-    const usuario = await Usuario.create({
-      nombre,
-      apellido,
-      email: emailNormalizado,
-      dni,
-      cuit,
-      direccion,
-      password: passwordHasheada,
-      rolDefinitivo: rolAsignado,
-      tipo, // Ahora se incluye el campo tipo
+    // Verificar si el usuario ya existe (por email o DNI)
+    const usuarioExistente = await Usuario.findOne({
+      where: {
+        [Op.or]: [{ email }, { dni }],
+      },
     });
 
-    const usuarioSinPassword = usuario.toJSON();
-    delete usuarioSinPassword.password;
+    if (usuarioExistente) {
+      return res.status(400).json({
+        message: 'Ya existe un usuario con este correo electrónico o DNI.',
+      });
+    }
 
-    res.status(201).json(usuarioSinPassword);
+    // Hashear la contraseña
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    // Crear el nuevo usuario
+  // Crear el nuevo usuario
+const nuevoUsuario = await Usuario.create({
+  nombre,
+  apellido,
+  email,
+  password: hashedPassword,
+  tipo,
+  dni,
+  direccion, // Enviar el objeto directamente
+  estado: 'pendiente', // Estado inicial
+});
+
+
+    // Ruta absoluta al logo
+    const logoPath = path.resolve(__dirname, '..', 'assets', 'logoprueba.png');
+
+    // Diseño HTML actualizado
+    const htmlContent = `
+      <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+        <table style="width: 100%; max-width: 600px; margin: auto; border: 1px solid #ddd; border-radius: 8px; box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1); overflow: hidden;">
+          <thead>
+            <tr>
+              <th style="background-color: #4CAF50; color: #fff; padding: 16px; text-align: center;">
+                <h1 style="margin: 0;">¡Bienvenido a Registro de Bienes!</h1>
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td style="padding: 16px; text-align: center;">
+                <img 
+                  src="cid:logo" 
+                  alt="Logo Registro de Bienes" 
+                  style="max-width: 150px; margin-bottom: 16px;" />
+                <p>Hola <strong>${nombre}</strong>,</p>
+                <p>
+                  ¡Estamos encantados de que te unas a nuestra plataforma! Tu solicitud de registro está 
+                  <strong>pendiente de revisión</strong>. Pronto te informaremos sobre el estado de tu cuenta.
+                </p>
+                <p>
+                  Mientras tanto, si tienes alguna duda o consulta, no dudes en contactarnos. Estamos aquí para ayudarte.
+                </p>
+                <p style="color: #888; font-size: 0.9em; margin-top: 20px;">
+                  Atentamente,<br>El equipo de Registro de Bienes.
+                </p>
+              </td>
+            </tr>
+          </tbody>
+          <tfoot>
+            <tr>
+              <td style="background-color: #f4f4f4; color: #666; font-size: 0.8em; text-align: center;">
+                © 2025 Registro de Bienes, Todos los derechos reservados.
+              </td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    `;
+
+    // Enviar correo con el diseño y la imagen
+    await enviarCorreo(
+      email,
+      'Solicitud Pendiente en Registro de Bienes',
+      `Hola ${nombre}, tu solicitud está pendiente de revisión.`,
+      htmlContent,
+      [
+        {
+          filename: 'logoprueba.png',
+          path: logoPath,
+          cid: 'logo', // ID de contenido para referenciar en el HTML
+        },
+      ]
+    );
+
+    res.status(201).json({
+      message: 'Usuario creado y correo enviado exitosamente.',
+      usuario: nuevoUsuario,
+    });
   } catch (error) {
-    console.error('Error al crear usuario:', error);
-    res.status(500).json({ message: 'Error interno del servidor.' });
+    console.error('Error al crear usuario o enviar correo:', error);
+    res.status(500).json({
+      message: 'Error interno del servidor.',
+      detalles: error.message,
+    });
   }
 };
+
+
 
 
 
@@ -81,6 +157,7 @@ const login = async (req, res) => {
 
   try {
     const usuario = await Usuario.findOne({ where: { email } });
+
     if (!usuario) {
       return res.status(404).json({ message: 'Usuario no encontrado.' });
     }
@@ -104,8 +181,16 @@ const login = async (req, res) => {
     const refreshToken = jwt.sign(
       { uuid: usuario.uuid },
       refreshSecret,
-      { expiresIn: '7d' } // El refresh token dura más
+      { expiresIn: '7d' }
     );
+
+    // Construir objeto de dirección
+    const direccion = usuario.direccion || {
+      calle: '',
+      altura: '',
+      barrio: '',
+      departamento: '',
+    };
 
     res.status(200).json({
       usuario: {
@@ -113,10 +198,12 @@ const login = async (req, res) => {
         nombre: usuario.nombre,
         apellido: usuario.apellido,
         email: usuario.email,
+        dni: usuario.dni,
         rolDefinitivo: usuario.rolDefinitivo,
+        direccion, // Incluir dirección como un objeto
       },
       token,
-      refreshToken, // Enviar también el refresh token
+      refreshToken,
     });
   } catch (error) {
     console.error('Error en el login:', error.message);
@@ -153,29 +240,38 @@ const obtenerCompradores = async (req, res) => {
   }
 };
 
+
 const registerUsuarioPorTercero = async (req, res) => {
-  const { dni, email, nombre, apellido, tipo, razonSocial, cuit, direccion } = req.body;
-
-  if (!dni || !email || !nombre || !apellido) {
-    return res.status(400).json({
-      mensaje: 'Faltan campos obligatorios. Asegúrate de enviar dni, email, nombre y apellido.',
-    });
-  }
-
   try {
-    const existingUser = await Usuario.findOne({ where: { email } });
+    const { dni, email, nombre, apellido, tipo, razonSocial, cuit, direccion } = req.body;
 
-    if (existingUser) {
-      // El usuario ya existe, no enviar enlace
-      return res.status(200).json({
-        mensaje: 'El usuario ya existe en el sistema.',
-        usuario: existingUser, // Opcional: devolver datos del usuario existente si lo necesitas
+    if (!dni || !email || !nombre || !apellido) {
+      return res.status(400).json({
+        mensaje: 'Faltan campos obligatorios: DNI, email, nombre y apellido son requeridos.',
       });
     }
 
-    // Crear un nuevo usuario
+    const existingUserByEmail = await Usuario.findOne({ where: { email } });
+    if (existingUserByEmail) {
+      return res.status(400).json({
+        mensaje: 'El email ya está registrado. Intenta con otro correo electrónico.',
+      });
+    }
+
+    const existingUserByDNI = await Usuario.findOne({ where: { dni } });
+    if (existingUserByDNI) {
+      return res.status(400).json({
+        mensaje: 'El DNI ya está registrado.',
+      });
+    }
+
+    const defaultPassword = await bcrypt.hash('temporal_' + Date.now(), 10);
+
+    // Generar el UUID manualmente con uuidv4
+    const userUuid = uuidv4();
+
     const nuevoUsuario = await Usuario.create({
-      uuid: uuidv4(),
+      uuid: userUuid, // Establecer manualmente el UUID
       dni,
       email,
       nombre,
@@ -184,75 +280,118 @@ const registerUsuarioPorTercero = async (req, res) => {
       razonSocial: tipo === 'juridica' ? razonSocial : null,
       cuit,
       direccion,
-      password: await bcrypt.hash('default_password', 10), // Contraseña por defecto
       estado: 'pendiente',
-      rolDefinitivo: 'usuario',
+      password: defaultPassword,
     });
 
-    // Generar un token JWT para el nuevo usuario
     const token = jwt.sign(
-      { id: nuevoUsuario.uuid }, // Payload
-      process.env.JWT_SECRET || 'bienes_muebles', // Clave secreta
-      { expiresIn: '24h' } // Tiempo de expiración
+      { userUuid: nuevoUsuario.uuid }, // Asegúrate de que el uuid está presente aquí
+      process.env.JWT_SECRET,
+      { expiresIn: '1d' }
     );
+    
+    console.log('Token generado:', token);
+    console.log('Payload utilizado:', { userUuid: nuevoUsuario.uuid });
+    
 
-    const resetLink = `${process.env.FRONTEND_URL}/usuarios/update-account/${token}`;
+    const enlace = `${process.env.FRONTEND_URL}/usuarios/update-account/${token}`;
 
-    const emailBody = `
-      <p>Hola ${nombre},</p>
-      <p>Has sido registrado por un tercero. Para completar tu registro y cambiar tu contraseña, haz clic en el siguiente enlace:</p>
-      <a href="${resetLink}">Completar registro</a>
-      <p>Este enlace es válido por 24 horas.</p>
+    const htmlContent = `
+      <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+        <h1>¡Bienvenido, ${nombre}!</h1>
+        <p>Has sido registrado en nuestra plataforma.</p>
+        <p>Para completar tu registro y actualizar tu contraseña, haz clic en el siguiente enlace:</p>
+        <a href="${enlace}" style="color: #1e88e5; text-decoration: none; font-weight: bold;">Actualizar Cuenta</a>
+        <p>Si no solicitaste este registro, ignora este mensaje.</p>
+      </div>
     `;
 
-    // Enviar correo al nuevo usuario
-    await enviarCorreo(email, 'Registro exitoso - Completa tu cuenta', emailBody, emailBody);
+    const logoPath = path.resolve(__dirname, '..', 'assets', 'logoprueba.png');
+
+    await enviarCorreo(
+      email,
+      'Completa tu registro',
+      `Hola ${nombre}, completa tu registro.`,
+      htmlContent,
+      [
+        {
+          filename: 'logoprueba.png',
+          path: logoPath,
+          cid: 'logo',
+        },
+      ]
+    );
 
     res.status(201).json({
-      mensaje: 'Usuario registrado con éxito. Se ha enviado un correo para completar su registro.',
+      mensaje: 'Usuario registrado y correo enviado con éxito.',
       usuario: nuevoUsuario,
     });
   } catch (error) {
-    console.error('Error al registrar usuario por tercero:', error.message);
+    console.error('Error al registrar usuario por tercero:', error);
     res.status(500).json({
       mensaje: 'Error interno al registrar el usuario.',
       detalles: error.message,
     });
   }
-};
-
-
+}
 const updateAccount = async (req, res) => {
-  const { token } = req.params; // Token recibido en la URL
-  const { newPassword, nombre, apellido } = req.body;
+  const { token } = req.params; // Extrae el token de los parámetros de la URL
 
   try {
-    // Decodificar el token y verificar si el usuario existe
+    // Verificar y decodificar el token
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    const usuario = await Usuario.findOne({ where: { uuid: decoded.id, estado: 'pendiente' } });
+    console.log('Token decodificado:', decoded);
+
+    // Extraer la propiedad userUuid del token
+    const { userUuid } = decoded; 
+    if (!userUuid) {
+      return res.status(400).json({ mensaje: 'Token inválido: no contiene UUID.' });
+    }
+
+    console.log('UUID decodificado:', userUuid);
+
+    // Buscar al usuario en la base de datos usando el userUuid
+    // -- Ajusta "userUuid" en el WHERE por el nombre de la columna de tu tabla (o modelo).
+    //    Si tu columna se llama "uuid", entonces usa: { where: { uuid: userUuid } }
+    const usuario = await Usuario.findOne({ where: { userUuid } });
+    console.log('Usuario encontrado:', usuario);
 
     if (!usuario) {
-      return res.status(404).json({ message: 'Usuario no encontrado o ya está activo.' });
+      return res.status(404).json({ mensaje: 'Usuario no encontrado.' });
     }
 
-    // Actualizar la información del usuario
-    if (newPassword) {
-      usuario.password = await bcrypt.hash(newPassword, 10);
+    // Actualizar datos del usuario
+    const { nombre, apellido, newPassword } = req.body;
+
+    if (!nombre || !apellido || !newPassword) {
+      return res.status(400).json({ mensaje: 'Nombre, apellido y contraseña son obligatorios.' });
     }
-    if (nombre) usuario.nombre = nombre;
-    if (apellido) usuario.apellido = apellido;
 
-    // Cambiar estado a "activo"
-    usuario.estado = 'aprobado';
+    // Asignar valores
+    usuario.nombre = nombre;
+    usuario.apellido = apellido;
+    usuario.password = await bcrypt.hash(newPassword, 10);
+    usuario.estado = 'aprobado'; // Cambia el estado si tu lógica lo requiere
 
+    // Guardar cambios
     await usuario.save();
 
-    res.status(200).json({ message: 'Cuenta actualizada y activada exitosamente.' });
+    return res.status(200).json({ mensaje: 'Cuenta actualizada con éxito.' });
+
   } catch (error) {
     console.error('Error al procesar el token:', error);
-    res.status(400).json({ message: 'Token inválido o expirado.' });
+
+    if (error.name === 'TokenExpiredError') {
+      return res.status(401).json({ mensaje: 'Token expirado.' });
+    }
+
+    return res.status(400).json({
+      mensaje: 'Token inválido o error interno.',
+      detalles: error.message
+    });
   }
 };
+
 
 const resetPassword = async (req, res) => {
   const { token, newPassword } = req.body;
@@ -307,73 +446,168 @@ const aprobarUsuario = async (req, res) => {
   }
 };
 
-
-// Aprobar o rechazar usuarios
-
 const cambiarEstadoUsuario = async (req, res) => {
-  const { uuid } = req.params;
-  const { estado, fechaAprobacion, aprobadoPor, motivoRechazo } = req.body;
+  const { uuid } = req.params; // Extraer UUID del usuario desde la ruta
+  const {
+    estado,
+    fechaAprobacion,
+    aprobadoPor,
+    motivoRechazo,
+    fechaRechazo,
+    rechazadoPor,
+  } = req.body; // Extraer datos del payload
+
+  console.log(`\n=== Cambiar estado del usuario ===`);
+  console.log(`UUID recibido: ${uuid}`);
+  console.log('Payload recibido:', req.body);
 
   try {
+    // Buscar usuario en la base de datos
+    console.log(`Buscando usuario con UUID: ${uuid}`);
+    const usuario = await Usuario.findOne({ where: { uuid } });
+    if (!usuario) {
+      console.error(`Usuario con UUID ${uuid} no encontrado`);
+      return res.status(404).json({ message: 'Usuario no encontrado' });
+    }
+
+    console.log('Usuario encontrado:', usuario);
+
+    // Actualizar estado según la acción
+    console.log(`Actualizando estado del usuario a: ${estado}`);
+    usuario.estado = estado;
+
+    if (estado === 'aprobado') {
+      console.log('Procesando aprobación...');
+      usuario.fechaAprobacion = fechaAprobacion || new Date().toISOString();
+      usuario.aprobadoPor = aprobadoPor;
+
+      if (usuario.email) {
+        console.log(`Enviando correo de aprobación a: ${usuario.email}`);
+        const subject = 'Su cuenta ha sido aprobada';
+        const text = `Hola ${usuario.nombre},
+
+Su cuenta ha sido aprobada correctamente.
+
+Atentamente,
+El equipo de Bienes Muebles`;
+        try {
+          await enviarCorreo(usuario.email, subject, text, null);
+          console.log(`Correo de aprobación enviado a: ${usuario.email}`);
+        } catch (emailError) {
+          console.error('Error al enviar correo de aprobación:', emailError);
+        }
+      }
+    }
+
+    if (estado === 'rechazado') {
+      console.log('Procesando rechazo...');
+      usuario.fechaRechazo = fechaRechazo || new Date().toISOString();
+      usuario.rechazadoPor = rechazadoPor;
+      usuario.motivoRechazo = motivoRechazo;
+    
+      if (usuario.email) {
+        console.log(`Enviando correo de rechazo a: ${usuario.email}`);
+        const subject = 'Su cuenta ha sido rechazada';
+    
+        // Generar enlace para reenviar el registro
+        const reintentarRegistroLink = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/usuarios/${usuario.uuid}/reintentar`;
+    
+        const text = `Hola ${usuario.nombre},
+    
+    Lamentamos informarle que su cuenta ha sido rechazada.
+    Motivo: "${motivoRechazo}"
+    
+    Puede reenviar su solicitud haciendo clic en el siguiente enlace:
+    ${reintentarRegistroLink}
+    
+    Atentamente,
+    El equipo de Bienes Muebles`;
+    
+        const html = `
+          <p>Hola ${usuario.nombre},</p>
+          <p>Lamentamos informarle que su cuenta ha sido rechazada.</p>
+          <blockquote style="color: red;">"${motivoRechazo}"</blockquote>
+          <p>Puede reenviar su solicitud haciendo clic en el siguiente enlace:</p>
+          <a href="${reintentarRegistroLink}" style="color: blue; font-weight: bold;">Reenviar Registro</a>
+          <p>Atentamente,<br>El equipo de Bienes Muebles</p>
+        `;
+    
+        try {
+          await enviarCorreo(usuario.email, subject, text, html);
+          console.log(`Correo de rechazo enviado a: ${usuario.email}`);
+        } catch (emailError) {
+          console.error('Error al enviar correo de rechazo:', emailError);
+        }
+      }
+    }
+    
+
+    // Guardar cambios en la base de datos
+    console.log('Guardando cambios en la base de datos...');
+    await usuario.save();
+    console.log(`Usuario ${uuid} actualizado a estado ${estado}`);
+
+    // Responder al cliente con éxito
+    return res.status(200).json({
+      message: `Usuario ${estado} correctamente`,
+      usuario,
+    });
+  } catch (error) {
+    // Capturar errores generales
+    console.error('Error al cambiar estado del usuario:', error);
+    return res.status(500).json({ message: 'Error interno al cambiar estado del usuario.' });
+  }
+};
+
+
+const reintentarRegistro = async (req, res) => {
+  const { uuid } = req.params;
+  const { nombre, apellido, email, dni, direccion } = req.body;
+
+  try {
+    console.log('UUID recibido:', uuid);
+    console.log('Datos recibidos:', req.body);
+
     const usuario = await Usuario.findOne({ where: { uuid } });
 
     if (!usuario) {
       return res.status(404).json({ message: 'Usuario no encontrado' });
     }
 
-    usuario.estado = estado;
-
-    if (estado === 'aprobado') {
-      usuario.fechaAprobacion = fechaAprobacion;
-      usuario.aprobadoPor = aprobadoPor;
-
-      try {
-        await enviarCorreo(
-          usuario.email,
-          '¡Tu registro ha sido aprobado!',
-          `Hola ${usuario.nombre}, tu registro ha sido aprobado.`,
-          `<p>Hola <strong>${usuario.nombre}</strong>, tu registro ha sido aprobado.</p>`
-        );
-        console.log('Correo de aprobación enviado correctamente.');
-      } catch (error) {
-        console.error('Error al enviar correo de aprobación:', error.message);
-      }
-    } else if (estado === 'rechazado') {
-      usuario.motivoRechazo = motivoRechazo;
-      usuario.rechazadoPor = aprobadoPor;
-      usuario.fechaRechazo = new Date();
-
-      try {
-        await enviarCorreo(
-          usuario.email,
-          'Tu registro ha sido rechazado',
-          `Hola ${usuario.nombre}, lamentamos informarte que tu registro ha sido rechazado. Motivo: ${motivoRechazo}`,
-          `<p>Hola <strong>${usuario.nombre}</strong>, lamentamos informarte que tu registro ha sido rechazado.<br>Motivo: ${motivoRechazo}</p>`
-        );
-        console.log('Correo de rechazo enviado correctamente.');
-      } catch (error) {
-        console.error('Error al enviar correo de rechazo:', error.message);
-      }
+    if (usuario.estado !== 'rechazado') {
+      return res.status(400).json({ message: 'Solo los usuarios rechazados pueden reenviar su registro.' });
     }
+
+    // Asignar datos obligatorios
+    usuario.nombre = nombre || usuario.nombre;
+    usuario.apellido = apellido || usuario.apellido;
+    usuario.email = email || usuario.email;
+    usuario.dni = dni || usuario.dni;
+
+    // Verifica si hay un campo "direccion"
+    if (direccion) {
+      usuario.calle = direccion.calle || usuario.calle;
+      usuario.altura = direccion.altura || usuario.altura;
+    }
+
+    usuario.estado = 'pendiente';
+    usuario.motivoRechazo = null;
 
     await usuario.save();
 
+    console.log('Usuario actualizado:', usuario);
     res.status(200).json({
-      message: `Usuario ${estado} correctamente`,
+      message: 'Registro reenviado correctamente para su revisión.',
       usuario,
     });
   } catch (error) {
-    console.error('Error al cambiar estado del usuario:', error.message);
-    res.status(500).json({ message: 'Error interno al cambiar estado del usuario.' });
+    console.error('Error al reenviar registro:', error);
+    res.status(500).json({ message: 'Error interno al reenviar registro.' });
   }
 };
 
 
 
-
-
-// Obtener usuarios por estado
-// Obtener usuarios por estado
 // Obtener usuarios por estado
 const obtenerUsuariosPorEstado = async (req, res) => {
   const { estado } = req.query;
@@ -475,74 +709,100 @@ const obtenerUsuariosPorEstado = async (req, res) => {
 
 
 
+
 const actualizarUsuario = async (req, res) => {
   const { uuid } = req.params;
   const { nombre, apellido, email, dni, direccion, contraseña, rol } = req.body;
 
   try {
+    // Buscar el usuario por UUID
     const usuario = await Usuario.findOne({ where: { uuid } });
     if (!usuario) {
       return res.status(404).json({ message: 'Usuario no encontrado.' });
     }
 
     const cambios = [];
+    const descripcionCambios = [];
 
+    // Verificar y registrar cambios en cada campo
     if (nombre && nombre !== usuario.nombre) {
       cambios.push({ campo: 'nombre', valor_anterior: usuario.nombre, valor_nuevo: nombre });
+      descripcionCambios.push(`Nombre cambiado de '${usuario.nombre}' a '${nombre}'`);
       usuario.nombre = nombre;
     }
 
     if (apellido && apellido !== usuario.apellido) {
       cambios.push({ campo: 'apellido', valor_anterior: usuario.apellido, valor_nuevo: apellido });
+      descripcionCambios.push(`Apellido cambiado de '${usuario.apellido}' a '${apellido}'`);
       usuario.apellido = apellido;
     }
 
     if (email && email !== usuario.email) {
       cambios.push({ campo: 'email', valor_anterior: usuario.email, valor_nuevo: email });
+      descripcionCambios.push(`Email cambiado de '${usuario.email}' a '${email}'`);
       usuario.email = email;
     }
 
     if (dni && dni !== usuario.dni) {
       cambios.push({ campo: 'dni', valor_anterior: usuario.dni, valor_nuevo: dni });
+      descripcionCambios.push(`DNI cambiado de '${usuario.dni}' a '${dni}'`);
       usuario.dni = dni;
     }
 
     if (direccion) {
       const nuevaDireccion = JSON.stringify(direccion);
-      const direccionActual = JSON.stringify(usuario.direccion);
+      const direccionActual = usuario.direccion ? JSON.stringify(usuario.direccion) : null;
+
       if (nuevaDireccion !== direccionActual) {
-        cambios.push({ campo: 'direccion', valor_anterior: direccionActual, valor_nuevo: nuevaDireccion });
+        const camposDireccion = ['calle', 'altura', 'barrio', 'departamento'];
+        camposDireccion.forEach((campo) => {
+          const valorAnterior = usuario.direccion?.[campo] || '-';
+          const valorNuevo = direccion[campo] || '-';
+
+          if (valorAnterior !== valorNuevo) {
+            cambios.push({
+              campo: `direccion.${campo}`,
+              valor_anterior: valorAnterior,
+              valor_nuevo: valorNuevo,
+            });
+            descripcionCambios.push(`Campo "direccion.${campo}" cambiado de '${valorAnterior}' a '${valorNuevo}'`);
+          }
+        });
+
         usuario.direccion = direccion;
       }
     }
 
     if (contraseña) {
-      const bcrypt = require('bcrypt');
       const hashedPassword = await bcrypt.hash(contraseña, 10);
       cambios.push({ campo: 'contraseña', valor_anterior: '******', valor_nuevo: '******' });
+      descripcionCambios.push('Contraseña actualizada para el usuario.');
       usuario.password = hashedPassword;
     }
 
     if (rol && rol !== usuario.rolDefinitivo) {
       cambios.push({ campo: 'rol', valor_anterior: usuario.rolDefinitivo, valor_nuevo: rol });
+      descripcionCambios.push(`Rol cambiado de '${usuario.rolDefinitivo}' a '${rol}'`);
       usuario.rolDefinitivo = rol;
     }
 
+    // Guardar cambios en el usuario
     await usuario.save();
 
-    // Guardar los cambios en el historial
-    for (const cambio of cambios) {
+    // Registrar los cambios en el historial
+    for (const [index, cambio] of cambios.entries()) {
       await HistorialCambios.create({
         usuario_id: uuid,
         campo: cambio.campo,
         valor_anterior: cambio.valor_anterior,
         valor_nuevo: cambio.valor_nuevo,
+        descripcion: descripcionCambios[index],
       });
     }
 
     res.status(200).json({
       message: 'Usuario actualizado con éxito.',
-      cambios, // Devuelve el historial de cambios
+      cambios,
       usuario,
     });
   } catch (error) {
@@ -550,7 +810,6 @@ const actualizarUsuario = async (req, res) => {
     res.status(500).json({ message: 'Error al actualizar usuario.', detalles: error.message });
   }
 };
-
 
 
 // Eliminar usuario
@@ -589,13 +848,20 @@ const obtenerUsuarioPorId = async (req, res) => {
 
 const obtenerUsuariosPendientes = async (req, res) => {
   try {
-    const usuarios = await Usuario.findAll({ where: { estado: 'pendiente' } });
-    res.json(usuarios);
+      const usuariosPendientes = await Usuario.findAll({
+          where: {
+              estado: ['pendiente', 'pendiente_revision'], // Incluye ambos estados
+          },
+      });
+
+      res.status(200).json(usuariosPendientes);
   } catch (error) {
-    console.error('Error al obtener usuarios pendientes:', error);
-    res.status(500).json({ message: 'Error al obtener usuarios pendientes.', error: error.message });
+      console.error('Error al obtener usuarios pendientes:', error);
+      res.status(500).json({ message: 'Error al obtener usuarios pendientes.' });
   }
 };
+
+
 
 const asignarRolTemporal = async (req, res) => {
   const { uuid } = req.params;
@@ -632,34 +898,31 @@ const obtenerRolTemporal = async (req, res) => {
     res.status(500).json({ message: 'Error al obtener rol temporal.', error: error.message });
   }
 };
-
 const checkExistingUser = async (req, res) => {
-  const { dni, email } = req.body;
+  const { dni, nombre, apellido } = req.body;
 
   try {
-    const usuario = await Usuario.findOne({
-      where: {
-        [Op.or]: [{ dni }, { email }],
-      },
-    });
+    if (!dni || !nombre || !apellido) {
+      return res.status(400).json({ mensaje: "DNI, nombre y apellido son requeridos." });
+    }
+
+    const usuario = await Usuario.findOne({ where: { dni, nombre, apellido } });
 
     if (usuario) {
       return res.status(200).json({
         existe: true,
         usuario,
-        mensaje: 'El usuario ya existe.',
+        mensaje: "El usuario ya existe.",
       });
     }
 
-    return res.status(200).json({
-      existe: false,
-      mensaje: 'Usuario no encontrado.',
-    });
+    return res.status(200).json({ existe: false, mensaje: "Usuario no encontrado." });
   } catch (error) {
-    console.error('Error en checkExistingUser:', error.message);
-    res.status(500).json({ message: 'Error al verificar el usuario.', detalles: error.message });
+    console.error("Error en checkExistingUser:", error.message);
+    res.status(500).json({ mensaje: "Error al verificar el usuario.", detalles: error.message });
   }
 };
+
 
 
 
@@ -805,5 +1068,7 @@ module.exports = {
   checkExistingUser, // Verificar si un usuario existe
   resetPassword,
   updateAccount,
+  reintentarRegistro, 
+
 };
 

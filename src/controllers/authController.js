@@ -32,17 +32,15 @@ const loginUsuario = async (req, res) => {
 
         // Construir respuesta del usuario
         const responseUser = {
-            id: user.id,
+            uuid: user.uuid, // Cambiado de `id` a `uuid` para consistencia
             email: user.email,
             nombre: user.nombre,
             apellido: user.apellido,
             direccion: user.direccion,
-            rolDefinitivo: user.rolDefinitivo, // Usar rolDefinitivo
-            tipo: user.tipo,
-            cuit: user.cuit, // Incluye CUIT si aplica
-            dni: user.dni,
+            rolDefinitivo: user.rolDefinitivo,
+            dni: user.dni, // Asegúrate de que este valor esté disponible en el modelo y la base de datos
         };
-
+        
         // Generar token con rolDefinitivo
         const token = jwt.sign(
             { 

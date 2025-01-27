@@ -60,6 +60,11 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.ARRAY(DataTypes.STRING),
       allowNull: true,
     },
+    imeis: { // Nuevo campo
+      type: DataTypes.JSON, // O DataTypes.TEXT si prefieres almacenarlo como una cadena
+      allowNull: true,
+      comment: 'IMEIs vendidos en esta transacción',
+    },
   }, {
     tableName: 'transacciones',
     timestamps: true,

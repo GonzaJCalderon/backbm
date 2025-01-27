@@ -9,19 +9,29 @@ const getHistorialCambios = async (req, res) => {
       include: {
         model: HistorialCambios,
         as: 'historial',
-        order: [['fecha', 'DESC']],
+        order: [['createdAt', 'DESC']],
       },
     });
 
     if (!usuarioConHistorial || usuarioConHistorial.historial.length === 0) {
-      return res.status(200).json([]); // No hay historial
+      return res.status(200).json([]); // Devuelve un array vacío si no hay historial
     }
 
-    res.json(usuarioConHistorial.historial);
+    // Normaliza los datos y asegura que el campo tenga un valor predeterminado
+    const historialNormalizado = usuarioConHistorial.historial.map((registro) => ({
+      id: registro.id,
+      campo: registro.campo || 'Sin especificar', // Proporciona un valor predeterminado
+      valor_anterior: registro.valor_anterior,
+      valor_nuevo: registro.valor_nuevo,
+      createdAt: registro.createdAt ? new Date(registro.createdAt).toISOString() : null,
+    }));
+
+    res.json(historialNormalizado);
   } catch (error) {
     console.error('Error al procesar la solicitud:', error.message);
     res.status(500).json({ message: 'Error al obtener historial de cambios', detalles: error.message });
   }
 };
+
 
 module.exports = { getHistorialCambios };

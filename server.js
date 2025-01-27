@@ -10,17 +10,28 @@ const PORT = process.env.PORT || 5005;
 
 // Configuración de CORS
 const corsOptions = {
-  origin: ['http://localhost:3000', 'http://localhost:5005', 'http://10.100.1.80', ],
+  origin: [
+    'http://localhost:3000',
+    'http://10.100.1.80:3000',
+    'http://10.100.1.216:9501',
+  ],
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Propietario-UUID'], // Agregar aquí el encabezado personalizado
+  allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: true,
 };
+
 app.use(cors(corsOptions));
 
-// Middlewares básicos
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+// Manejo explícito de solicitudes OPTIONS
+app.options('*', cors(corsOptions));
+
+// Configuración de límites para solicitudes grandes
+app.use(express.json({ limit: '1gb' })); // Límite de 1GB para solicitudes JSON
+app.use(express.urlencoded({ limit: '1gb', extended: true })); // Límite de 1GB para formularios codificados
+
 app.use(cookieParser());
+
+// Cargar rutas
 try {
   console.log('Cargando rutas de bienes...');
   app.use('/bienes', require('./src/routes/bienes'));
@@ -46,15 +57,18 @@ try {
   console.log('Cargando rutas de Historial Cambios...');
   app.use('/historialcambios', require('./src/routes/HistorialCambios'));
 
-  
+  console.log('Cargando rutas de Uploads...');
+  app.use('/uploads', require('./src/routes/uploads'));
 
-
-  
+  console.log('Cargando rutas de renaper...');
+  app.use('/renaper', require('./src/routes/renaper'));
 
 
 } catch (error) {
   console.error('Error al cargar rutas:', error.message);
 }
+
+
 
 // Inicialización de la base de datos y sincronización
 (async () => {
@@ -62,12 +76,9 @@ try {
     await sequelize.authenticate();
     console.log('Conexión a la base de datos exitosa');
 
-  
-
-    await Usuario.sync({ alter: true }); // Luego sincroniza usuarios con la relación a roles
+    await Usuario.sync({ alter: true });
     console.log('Modelo Usuario sincronizado.');
 
-    // Sincronizar otros modelos
     await Bien.sync({ alter: true });
     console.log('Modelo Bien sincronizado.');
 
@@ -87,14 +98,14 @@ try {
     console.log('Modelo PasswordResetToken sincronizado.');
 
     // Inicia el servidor
-    app.listen(PORT, () => {
+    app.listen(PORT, '0.0.0.0', () => {
       console.log(`Servidor corriendo en el puerto ${PORT}`);
     });
   } catch (error) {
-    console.error('Error durante la inicialización:', error);
+    console.error('Error durante la inicialización:', error.message);
+    process.exit(1); // Salir si no puede inicializar correctamente
   }
 })();
-
 
 // Middleware global de manejo de errores
 app.use((err, req, res, next) => {
@@ -102,5 +113,12 @@ app.use((err, req, res, next) => {
   if (res.headersSent) {
     return next(err); // Si ya se envió una respuesta, termina aquí
   }
-  res.status(500).json({ message: 'Error interno del servidor', error: err.message });
+  res.status(500).json({
+    message: 'Error interno del servidor',
+    error: process.env.NODE_ENV === 'development' ? err.message : 'Contacte al soporte',
+  });
 });
+
+// Logs para asegurar que las variables de entorno están configuradas
+console.log('Puerto configurado:', process.env.PORT);
+console.log('API URL Remote:', process.env.API_URL_REMOTE);

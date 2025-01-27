@@ -64,9 +64,14 @@ module.exports = (sequelize, DataTypes) => {
           if (value && typeof value !== 'object') {
             throw new Error('La dirección debe ser un objeto JSON válido.');
           }
+          if (!value.calle || !value.altura || !value.departamento) {
+            throw new Error('La dirección debe incluir calle, altura y departamento.');
+          }
         },
       },
     },
+    
+    
     razonSocial: {
       type: DataTypes.STRING,
       allowNull: true,

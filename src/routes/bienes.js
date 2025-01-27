@@ -7,6 +7,7 @@ const transaccionesController = require('../controllers/transaccionesController'
 const { verifyToken, verificarPermisos } = require('../middlewares/authMiddleware');
 const { uploadFotosMiddleware, uploadFileToCloudinary } = require('../middlewares/uploadFotos');
 const { v4: uuidv4 } = require('uuid');
+const { uploadFotosBienMiddleware } = require('../middlewares/uploadFotosBien');
 
 
 
@@ -14,12 +15,7 @@ const { v4: uuidv4 } = require('uuid');
 router.get('/', bienesController.obtenerBienes);
 
 // Crear un nuevo bien con fotos y stock inicial
-router.post(
-  '/add',
-  verifyToken,
-  uploadFotosMiddleware,
-  bienesController.crearBien
-);
+router.post('/add', uploadFotosBienMiddleware, bienesController.crearBien);
 
 // Obtener bienes filtrados por marca, tipo y modelo
 router.get('/filtrados', bienesController.getBienesPorMarcaTipoModelo);
@@ -40,11 +36,13 @@ router.get('/:uuid', bienesController.obtenerBienPorUuid);
 
 
 // Actualizar un bien por su ID
+// Ruta para actualizar un bien
 router.put(
-  '/:id',
+  '/:uuid',
   verifyToken,
-  verificarPermisos(['administrador', 'usuario']),
-  bienesController.actualizarBien
+  verificarPermisos(['admin', 'usuario']),
+  uploadFotosBienMiddleware, // Middleware para procesar las fotos
+  bienesController.actualizarBien // Controlador que maneja la lógica de actualización
 );
 
 // Eliminar un bien por su ID
@@ -84,5 +82,7 @@ router.get('/bienes/marcas', verifyToken, bienesController.obtenerMarcas);
 // Obtener modelos por tipo y marca
 router.get('/bienes/modelos', verifyToken, bienesController.obtenerModelos);
 
+// Verificar si un IMEI ya existe
+router.get('/imei-exists/:imei', bienesController.verificarIMEI);
 
 module.exports = router;

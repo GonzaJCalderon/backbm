@@ -2,11 +2,26 @@ const express = require('express');
 const router = express.Router();
 const multer = require('multer');
 const cloudinary = require('cloudinary').v2;
-const { v4: uuidv4 } = require('uuid');
 
 // Configuración de multer para manejar archivos en memoria
 const storage = multer.memoryStorage();
 const upload = multer({ storage });
+
+// Función para subir un archivo a Cloudinary y devolver una promesa
+const subirArchivoACloudinary = (fileBuffer) => {
+  return new Promise((resolve, reject) => {
+    const uploadStream = cloudinary.uploader.upload_stream(
+      { folder: 'bienes' }, // Carpeta donde se almacenarán las imágenes
+      (error, result) => {
+        if (error) {
+          return reject(error);
+        }
+        resolve(result.secure_url);
+      }
+    );
+    uploadStream.end(fileBuffer);
+  });
+};
 
 // Ruta para subir imágenes a Cloudinary
 router.post('/upload', upload.array('fotos', 10), async (req, res) => {
@@ -19,19 +34,7 @@ router.post('/upload', upload.array('fotos', 10), async (req, res) => {
 
     // Subir cada archivo a Cloudinary y obtener las URLs
     const urls = await Promise.all(
-      archivos.map(async (file) => {
-        const result = await cloudinary.uploader.upload_stream({ 
-          folder: 'bienes', // Carpeta donde se almacenarán las imágenes
-        }, (error, result) => {
-          if (error) {
-            console.error('Error al subir a Cloudinary:', error);
-            throw new Error(error);
-          }
-          return result.secure_url;
-        });
-
-        return result;
-      })
+      archivos.map((file) => subirArchivoACloudinary(file.buffer))
     );
 
     res.status(200).json({ urls }); // Responder con las URLs generadas

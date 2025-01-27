@@ -5,10 +5,28 @@ module.exports = (sequelize, DataTypes) => {
       primaryKey: true,
       autoIncrement: true,
     },
+    usuario_id: {
+      type: DataTypes.UUID,
+      allowNull: false,
+    },
     descripcion: {
       type: DataTypes.STRING,
       allowNull: false,
     },
+    valor_anterior: {
+      type: DataTypes.STRING,
+      allowNull: true, // Permitir valores nulos si no aplica
+    },
+    valor_nuevo: {
+      type: DataTypes.STRING,
+      allowNull: true, // Permitir valores nulos si no aplica
+    },
+    campo: {
+      type: DataTypes.STRING,
+      allowNull: false,
+      defaultValue: 'Sin especificar',
+    },
+    
     createdAt: {
       type: DataTypes.DATE,
       allowNull: false,
@@ -21,7 +39,7 @@ module.exports = (sequelize, DataTypes) => {
     },
   }, {
     tableName: 'historial_cambios',
-    timestamps: true, // Sequelize gestionará createdAt y updatedAt automáticamente
+    timestamps: true,
   });
 
   return HistorialCambios;

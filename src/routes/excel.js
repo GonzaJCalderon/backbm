@@ -64,57 +64,12 @@ router.post('/subir-fotos/:bienKey', uploadFotosMiddleware, async (req, res) => 
   
 
 
+ // Usa el controlador 'finalizarCreacionBienes' para la ruta
+router.post('/finalizar-creacion', verifyToken, excelController.finalizarCreacionBienes);
 
-router.post('/finalizar-creacion', verifyToken, async (req, res) => {
-  const { bienes } = req.body;
-  console.log('Procesando creación de bienes:', bienes);
 
-  try {
-      const transaction = await sequelize.transaction();
-
-      for (const bien of bienes) {
-          // Crear el bien
-          const nuevoBien = await Bien.create({
-              tipo: bien.tipo,
-              descripcion: bien.descripcion,
-              precio: bien.precio,
-              marca: bien.marca,
-              modelo: bien.modelo,
-              fotos: bien.fotos, // Fotos subidas
-              propietario_uuid: req.user.uuid,
-          }, { transaction });
-
-          console.log('Bien creado:', nuevoBien);
-
-          // Crear el registro de stock
-          const stock = await Stock.create({
-              bien_uuid: nuevoBien.uuid,
-              cantidad: bien.cantidadStock,
-              usuario_uuid: req.user.uuid,
-          }, { transaction });
-
-          console.log('Stock creado:', stock);
-
-          // Generar identificadores únicos para cada bien
-          const identificadores = [];
-          for (let i = 0; i < bien.cantidadStock; i++) {
-              identificadores.push({
-                  bien_uuid: nuevoBien.uuid,
-                  identificador_unico: `${bien.tipo.toUpperCase()}-${uuidv4()}`,
-              });
-          }
-
-          // Insertar los identificadores en la tabla DetallesBien
-          await DetallesBien.bulkCreate(identificadores, { transaction });
-          console.log('Identificadores creados:', identificadores);
-      }
-
-      await transaction.commit();
-      res.status(201).json({ message: 'Bienes creados exitosamente.' });
-  } catch (error) {
-      console.error('Error al finalizar creación de bienes:', error);
-      res.status(500).json({ message: 'Error al registrar los bienes.', detalles: error.message });
-  }
-});
+  
+  
+  
 
 module.exports = router;

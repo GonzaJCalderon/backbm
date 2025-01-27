@@ -5,6 +5,7 @@ const { uploadFileToCloudinary } = require('../middlewares/uploadFotos');
 const { v4: uuidv4 } = require('uuid');
 const cloudinary = require('cloudinary').v2;
 const { sequelize} = require('../models');
+const { uploadFotosBien} = require('../middlewares/uploadFotosBien');
 
 
 const { generateUUID } = require('uuid');
@@ -22,23 +23,23 @@ const obtenerBienes = async (req, res) => {
       include: [
         {
           model: Usuario,
-          as: 'propietario', // Alias que definiste en la asociación
-          attributes: ['uuid', 'nombre', 'apellido'], // Campos que necesitas del propietario
+          as: 'propietario',
+          attributes: ['uuid', 'nombre', 'apellido'],
         },
         {
           model: Stock,
           as: 'stock',
-          attributes: ['cantidad'], // Otros modelos relacionados
+          attributes: ['cantidad'],
         },
         {
           model: DetallesBien,
           as: 'detalles',
-          attributes: ['identificador_unico'],
+          attributes: ['identificador_unico', 'estado'], // Incluye el estado del identificador
         },
         {
           model: Transaccion,
           as: 'transacciones',
-          attributes: ['vendedor_uuid', 'comprador_uuid'],
+          attributes: ['vendedor_uuid', 'comprador_uuid', 'cantidad', 'imeis'],
           include: [
             {
               model: Usuario,
@@ -54,9 +55,7 @@ const obtenerBienes = async (req, res) => {
         },
       ],
     });
-    
 
-    console.log('Datos obtenidos en obtenerBienes:', bienes); // Agrega este log para verificar la respuesta
     res.status(200).json(bienes);
   } catch (error) {
     console.error('Error obteniendo bienes:', error);
@@ -122,47 +121,45 @@ const obtenerBienPorUuid = async (req, res) => {
 };
 
 
+// Función para validar IMEI (ejemplo simple)
+const isValidIMEI = (imei) => {
+  const imeiRegex = /^[0-9]{15}$/; // IMEI debe tener 15 dígitos
+  return imeiRegex.test(imei);
+};
+
+
 const crearBien = async (req, res) => {
-  const {
+  const { tipo, marca, modelo, descripcion, precio, propietario_uuid, stock } = req.body;
+  let { imei } = req.body; // Puede ser cadena o array
+  const fotosSubidas = req.uploadedPhotos || [];
+
+  console.log('Datos recibidos del cliente:', {
     tipo,
     marca,
     modelo,
     descripcion,
     precio,
     propietario_uuid,
-    stock: cantidadStock,
-    imei, // Identificadores manuales
-  } = req.body;
-
-  const compradorId = req.user.uuid; // Usuario autenticado
-  const fotos = req.uploadedPhotos || []; // Fotos subidas desde el middleware
-  let transaction;
-
-  console.log('--- Datos Recibidos ---');
-  console.log({
-    tipo, marca, modelo, descripcion, precio, propietario_uuid, cantidadStock, fotos,
+    stock,
+    imei,
+    fotos: fotosSubidas,
   });
 
+  // Validar campos obligatorios
+  if (!tipo || !marca || !modelo || !descripcion || !precio || !stock) {
+    return res.status(400).json({ message: 'Todos los campos son obligatorios.' });
+  }
+
+  const transaction = await sequelize.transaction();
+
   try {
-    if (!tipo || !marca || !modelo || !descripcion || !precio || !cantidadStock) {
-      return res.status(400).json({ message: 'Faltan datos obligatorios.' });
-    }
-
-    // Verificar que haya fotos subidas
-    if (!fotos || fotos.length === 0) {
-      return res.status(400).json({ message: 'Se requieren fotos para registrar el bien.' });
-    }
-
-    transaction = await sequelize.transaction();
-
-    // Buscar o crear el Bien
+    // Buscar si ya existe el bien
     let bien = await Bien.findOne({
-      where: { tipo, marca, modelo },
+      where: { tipo, marca, modelo, propietario_uuid },
       transaction,
     });
 
     if (!bien) {
-      // Crear el bien si no existe
       bien = await Bien.create(
         {
           uuid: uuidv4(),
@@ -171,131 +168,199 @@ const crearBien = async (req, res) => {
           modelo,
           descripcion,
           precio: parseFloat(precio),
-          fotos, // Aquí se guardan las fotos
-          propietario_uuid: compradorId,
+          fotos: fotosSubidas,
+          propietario_uuid,
         },
         { transaction }
       );
-      console.log('Nuevo bien creado:', bien);
-    } else {
-      // Si existe, actualizamos sus fotos y otros campos
-      console.log('Bien existente encontrado:', bien);
-      bien.descripcion = descripcion;
-      bien.precio = parseFloat(precio);
-      bien.fotos = fotos; // Actualizar fotos
-      bien.propietario_uuid = compradorId;
-      await bien.save({ transaction });
     }
 
-    // Crear o actualizar el Stock
+    // Manejar el stock
+    const stockParsed = typeof stock === 'string' ? JSON.parse(stock) : stock;
     const stockExistente = await Stock.findOne({
-      where: { bien_uuid: bien.uuid, usuario_uuid: compradorId },
+      where: { bien_uuid: bien.uuid, usuario_uuid: propietario_uuid },
       transaction,
     });
 
     if (stockExistente) {
-      stockExistente.cantidad += parseInt(cantidadStock, 10);
+      stockExistente.cantidad += parseInt(stockParsed.cantidad, 10);
       await stockExistente.save({ transaction });
     } else {
       await Stock.create(
         {
           uuid: uuidv4(),
           bien_uuid: bien.uuid,
-          cantidad: parseInt(cantidadStock, 10),
-          usuario_uuid: compradorId,
+          cantidad: parseInt(stockParsed.cantidad, 10),
+          usuario_uuid: propietario_uuid,
         },
         { transaction }
       );
     }
 
-    // Crear identificadores únicos en DetallesBien
-    const detalles = [];
-    if (imei && Array.isArray(imei) && imei.length === cantidadStock) {
-      // Si hay IMEIs específicos
-      imei.forEach((id) => {
-        detalles.push({
-          bien_uuid: bien.uuid,
-          identificador_unico: id,
+    // Manejar IMEIs
+    if (tipo.toLowerCase() === 'teléfono movil' && imei) {
+      if (typeof imei === 'string') {
+        imei = JSON.parse(imei); // Convierte la cadena JSON en un array
+      }
+
+      if (!Array.isArray(imei)) {
+        throw new Error('El campo IMEI debe ser un array.');
+      }
+
+      for (const unImei of imei) {
+        // Validar formato del IMEI
+        if (!isValidIMEI(unImei)) {
+          throw new Error(`IMEI inválido: ${unImei}`);
+        }
+
+        // Verificar si el IMEI ya existe
+        const imeiExistente = await DetallesBien.findOne({
+          where: { identificador_unico: unImei },
+          transaction,
         });
-      });
-    } else {
-      // Generar identificadores únicos
-      for (let i = 0; i < cantidadStock; i++) {
-        detalles.push({
-          bien_uuid: bien.uuid,
-          identificador_unico: `${tipo.toUpperCase()}-${uuidv4()}`,
-        });
+
+        if (imeiExistente) {
+          throw new Error(`El IMEI ${unImei} ya está registrado.`);
+        }
+
+        // Registrar el IMEI
+        await DetallesBien.create(
+          {
+            bien_uuid: bien.uuid,
+            identificador_unico: unImei,
+          },
+          { transaction }
+        );
+        console.log('IMEI registrado:', unImei);
+      }
+    } else if (tipo.toLowerCase() !== 'teléfono movil') {
+      // Generar Identificadores Únicos para bienes no telefónicos
+      const cantidad = parseInt(stockParsed.cantidad, 10);
+
+      for (let i = 0; i < cantidad; i++) {
+        const identificadorUnico = uuidv4(); // Genera un identificador único
+
+        await DetallesBien.create(
+          {
+            bien_uuid: bien.uuid,
+            identificador_unico: identificadorUnico,
+            estado: 'disponible', // Marca el estado como disponible
+          },
+          { transaction }
+        );
+        console.log('Identificador único registrado:', identificadorUnico);
       }
     }
 
-    await DetallesBien.bulkCreate(detalles, { transaction });
-    console.log('DetallesBien creados:', detalles);
-
-    // Confirmar la transacción
     await transaction.commit();
 
-    res.status(201).json({
-      message: 'Bien creado con éxito.',
-      bien,
-      stock: cantidadStock,
-      identificadores: detalles,
-      fotos, // Aseguramos que las fotos se incluyan en la respuesta
+    // Cargar el bien nuevamente con detalles para incluir los IMEIs en la respuesta
+    const bienConDetalles = await Bien.findOne({
+      where: { uuid: bien.uuid },
+      include: [
+        {
+          model: Stock,
+          as: 'stock',
+          attributes: ['cantidad'],
+        },
+        {
+          model: DetallesBien,
+          as: 'detalles',
+          attributes: ['identificador_unico'],
+        },
+      ],
     });
+
+    const bienProcesado = {
+      uuid: bienConDetalles.uuid,
+      tipo: bienConDetalles.tipo,
+      marca: bienConDetalles.marca,
+      modelo: bienConDetalles.modelo,
+      descripcion: bienConDetalles.descripcion,
+      precio: bienConDetalles.precio,
+      stock: bienConDetalles.stock?.cantidad || 0,
+      fotos: bienConDetalles.fotos || [],
+      identificadores: Array.isArray(bienConDetalles.detalles)
+        ? bienConDetalles.detalles.map((detalle) => detalle.identificador_unico)
+        : [bienConDetalles.detalles?.identificador_unico].filter(Boolean),
+      createdAt: bienConDetalles.createdAt,
+    };
+
+    res.status(201).json({ message: 'Bien registrado exitosamente.', bien: bienProcesado });
   } catch (error) {
-    if (transaction) await transaction.rollback();
-    console.error('Error al crear el bien:', error.message);
-    res.status(500).json({
-      message: 'Error al registrar el bien.',
-      detalles: error.message,
-    });
+    await transaction.rollback();
+    console.error('Error al registrar el bien:', error);
+    res.status(500).json({ message: 'Error al registrar el bien.', error: error.message });
   }
 };
 
 
-
-
-
-
-// Actualizar un bien
 const actualizarBien = async (req, res) => {
   try {
-    const { id } = req.params;
-    const { descripcion, precio, vendedorId, compradorId } = req.body;
+    const { uuid } = req.params;
+    const { descripcion, precio, tipo, marca, modelo, existingImages } = req.body;
 
-    const bien = await Bien.findByPk(id);
+    // Buscar el bien
+    const bien = await Bien.findOne({ where: { uuid } });
     if (!bien) {
       return res.status(404).json({ message: 'Bien no encontrado.' });
     }
 
+    // Actualizar datos básicos
     bien.descripcion = descripcion || bien.descripcion;
     bien.precio = precio || bien.precio;
-    bien.vendedorId = vendedorId || bien.vendedorId;
-    bien.compradorId = compradorId || bien.compradorId;
+    bien.tipo = tipo || bien.tipo;
+    bien.marca = marca || bien.marca;
+    bien.modelo = modelo || bien.modelo;
 
+    // Manejar imágenes existentes y nuevas
+    const updatedExistingImages = JSON.parse(existingImages || '[]');
+    const newImages = req.uploadedPhotos || [];
+
+    bien.fotos = [...updatedExistingImages, ...newImages];
+
+    // Guardar cambios
     await bien.save();
+
     res.status(200).json(bien);
   } catch (error) {
-    console.error('Error actualizando el bien:', error);
+    console.error('Error al actualizar el bien:', error);
     res.status(500).json({ message: 'Error actualizando el bien.', error: error.message });
   }
 };
 
+
+
 // Eliminar un bien
 const eliminarBien = async (req, res) => {
   try {
-    const { id } = req.params;
-    const bien = await Bien.findByPk(id);
+    const { uuid } = req.params; // Capturar el UUID del bien desde los parámetros de la solicitud
+
+    // Validar que se haya enviado el UUID
+    if (!uuid) {
+      return res.status(400).json({ message: 'El UUID del bien es requerido.' });
+    }
+
+    // Buscar el bien por UUID
+    const bien = await Bien.findOne({ where: { uuid } });
     if (!bien) {
       return res.status(404).json({ message: 'Bien no encontrado.' });
     }
 
+    // Eliminar el bien
     await bien.destroy();
+
     res.status(200).json({ message: 'Bien eliminado correctamente.' });
   } catch (error) {
-    console.error('Error eliminando el bien:', error);
-    res.status(500).json({ message: 'Error eliminando el bien.', error: error.message });
+    console.error('Error al eliminar el bien:', error);
+    res.status(500).json({
+      message: 'Error interno al eliminar el bien.',
+      error: error.message,
+    });
   }
 };
+
+
 
 // bienesController.js
 
@@ -319,21 +384,20 @@ const obtenerBienesPorUsuario = async (req, res) => {
           attributes: ['cantidad'], // Solo cantidad
         },
         {
-          model: Transaccion,
-          as: 'transacciones',
-          attributes: ['fotos'], // Solo fotos
-        },
-        {
           model: DetallesBien,
           as: 'detalles',
-          attributes: ['identificador_unico'], // Incluye los identificadores únicos
+          attributes: ['identificador_unico', 'estado'], // Incluye estado del identificador
+          required: false, // Permite bienes sin detalles asociados
         },
       ],
+      order: [['createdAt', 'DESC']], // Ordenar por fecha de creación
     });
 
-    if (!bienes || !bienes.length) {
+    if (!bienes || bienes.length === 0) {
       return res.status(404).json({ message: 'No se encontraron bienes para este usuario.' });
     }
+
+    // Procesar bienes para incluir identificadores
     const bienesProcesados = bienes.map((bien) => ({
       uuid: bien.uuid,
       tipo: bien.tipo,
@@ -342,18 +406,20 @@ const obtenerBienesPorUsuario = async (req, res) => {
       descripcion: bien.descripcion,
       precio: bien.precio,
       stock: bien.stock?.cantidad || 0,
-      fotos: bien.fotos || [], // Toma las fotos directamente del modelo Bien
-      identificadores: bien.detalles?.map((detalle) => detalle.identificador_unico) || [],
+      fotos: bien.fotos || [],
+      identificadores: bien.detalles.map((detalle) => ({
+        identificador_unico: detalle.identificador_unico,
+        estado: detalle.estado || 'Disponible',
+      })),
       createdAt: bien.createdAt,
     }));
-    
 
     console.log('Bienes procesados:', bienesProcesados);
 
-    res.status(200).json(bienesProcesados);
+    return res.status(200).json(bienesProcesados);
   } catch (error) {
     console.error('Error obteniendo bienes por usuario:', error);
-    res.status(500).json({
+    return res.status(500).json({
       message: 'Error obteniendo bienes por usuario.',
       error: error.message,
     });
@@ -754,6 +820,20 @@ const obtenerModelos = async (req, res) => {
   }
 };
 
+const verificarIMEI = async (req, res) => {
+  const { imei } = req.params;
+
+  try {
+      // Convierte el IMEI a texto explícitamente
+      const existe = await DetallesBien.findOne({ where: { identificador_unico: String(imei) } });
+
+      return res.status(200).json({ exists: !!existe });
+  } catch (error) {
+      console.error('Error al verificar IMEI:', error);
+      return res.status(500).json({ error: 'Error interno del servidor al verificar el IMEI.' });
+  }
+};
+
 
 
 
@@ -777,6 +857,7 @@ module.exports = {
   registrarMarca,
   obtenerMarcas,
   obtenerModelos,
+  verificarIMEI,
 
 
 };
