@@ -8,7 +8,8 @@ require('dotenv').config();
 
 const usuarioController = require('../controllers/usuariosController');
 const { validarCampos } = require('../utils/validationUtils');
-const { verifyToken, verificarPermisos } = require('../middlewares/authMiddleware');
+const { verificarPermisos } = require('../middlewares/authMiddleware');
+const { verifyToken } = require('../middlewares/authJwt');
 
 const secretKey = process.env.SECRET_KEY || 'bienes_muebles'; // Usa la clave secreta de .env
 
@@ -69,11 +70,11 @@ router.get('/usuarios', verifyToken, verificarPermisos(['admin', 'moderador']), 
       offset: parseInt(offset),
     });
 
-    res.json({ 
-      total: usuarios.count, 
-      data: usuarios.rows, 
-      page, 
-      pages: Math.ceil(usuarios.count / limit) 
+    res.json({
+      total: usuarios.count,
+      data: usuarios.rows,
+      page,
+      pages: Math.ceil(usuarios.count / limit)
     });
   } catch (error) {
     console.error('Error al filtrar usuarios:', error);
@@ -96,7 +97,7 @@ router.get('/dni', verifyToken, verificarPermisos(['admin', 'moderador']), usuar
 router.post('/register-usuario-por-tercero', usuarioController.registerUsuarioPorTercero);
 
 router.post('/update-account/:token', async (req, res) => {
-  const { token } = req.params; 
+  const { token } = req.params;
   const { newPassword, nombre, apellido } = req.body;
 
   console.log('Token recibido:', token);
@@ -109,7 +110,7 @@ router.post('/update-account/:token', async (req, res) => {
 
     // IMPORTANTE: El token tiene userUuid en vez de id
     const usuario = await Usuario.findOne({
-      where: { uuid: decoded.userUuid } 
+      where: { uuid: decoded.userUuid }
     });
 
     if (!usuario) {
@@ -280,31 +281,31 @@ router.put('/:uuid/reenviar', async (req, res) => {
   }
 
   try {
-      const usuario = await Usuario.findOne({ where: { uuid } });
+    const usuario = await Usuario.findOne({ where: { uuid } });
 
-      if (!usuario || usuario.estado !== 'rechazado') {
-          return res.status(404).json({ message: 'El usuario no está en estado rechazado o no existe.' });
-      }
+    if (!usuario || usuario.estado !== 'rechazado') {
+      return res.status(404).json({ message: 'El usuario no está en estado rechazado o no existe.' });
+    }
 
-      // Actualizar datos del usuario
-      usuario.nombre = nombre;
-      usuario.apellido = apellido;
-      usuario.email = email;
-      usuario.dni = dni;
-      usuario.estado = 'pendiente_revision'; // Cambiar estado para reingreso
-      usuario.fechaReenvio = new Date();
+    // Actualizar datos del usuario
+    usuario.nombre = nombre;
+    usuario.apellido = apellido;
+    usuario.email = email;
+    usuario.dni = dni;
+    usuario.estado = 'pendiente_revision'; // Cambiar estado para reingreso
+    usuario.fechaReenvio = new Date();
 
-      await usuario.save();
+    await usuario.save();
 
-      // Generar token y enlace
-      const jwt = require('jsonwebtoken');
-      const token = jwt.sign({ uuid: usuario.uuid }, process.env.JWT_SECRET, { expiresIn: '1h' });
-      const updateAccountLink = `${process.env.FRONTEND_URL}/update-account/${token}`;
+    // Generar token y enlace
+    const jwt = require('jsonwebtoken');
+    const token = jwt.sign({ uuid: usuario.uuid }, process.env.JWT_SECRET, { expiresIn: '1h' });
+    const updateAccountLink = `${process.env.FRONTEND_URL}/update-account/${token}`;
 
-      // Enviar correo
-      const enviarCorreo = require('../utils/enviarCorreo');
-      const subject = 'Solicitud de actualización de cuenta rechazada';
-      const text = `
+    // Enviar correo
+    const enviarCorreo = require('../utils/enviarCorreo');
+    const subject = 'Solicitud de actualización de cuenta rechazada';
+    const text = `
         Hola ${nombre},
 
         Tu solicitud de registro fue rechazada debido a que algunos datos no cumplían con los requisitos.
@@ -315,7 +316,7 @@ router.put('/:uuid/reenviar', async (req, res) => {
         Atentamente,
         El equipo de Bienes Muebles.
       `;
-      const html = `
+    const html = `
         <p>Hola ${nombre},</p>
         <p>Tu solicitud de registro fue rechazada debido a que algunos datos no cumplían con los requisitos.</p>
         <p>Por favor, haz clic en el siguiente enlace para actualizar tu información:</p>
@@ -323,16 +324,16 @@ router.put('/:uuid/reenviar', async (req, res) => {
         <p>Atentamente,<br>El equipo de Bienes Muebles.</p>
       `;
 
-      await enviarCorreo(email, subject, text, html);
+    await enviarCorreo(email, subject, text, html);
 
-      res.status(200).json({
-          message: 'Solicitud reenviada correctamente. Revisa tu correo electrónico para actualizar la cuenta.',
-          usuario,
-          link: updateAccountLink, // Para depuración
-      });
+    res.status(200).json({
+      message: 'Solicitud reenviada correctamente. Revisa tu correo electrónico para actualizar la cuenta.',
+      usuario,
+      link: updateAccountLink, // Para depuración
+    });
   } catch (error) {
-      console.error('Error al reenviar solicitud:', error);
-      res.status(500).json({ message: 'Error interno al reenviar solicitud.' });
+    console.error('Error al reenviar solicitud:', error);
+    res.status(500).json({ message: 'Error interno al reenviar solicitud.' });
   }
 });
 

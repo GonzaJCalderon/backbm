@@ -4,10 +4,11 @@ const { sequelize } = require('../models');
 const Bien = require('../models/Bien');
 const bienesController = require('../controllers/bienesController');
 const transaccionesController = require('../controllers/transaccionesController');
-const { verifyToken, verificarPermisos } = require('../middlewares/authMiddleware');
+const { verificarPermisos } = require('../middlewares/authMiddleware');
 const { uploadFotosMiddleware, uploadFileToCloudinary } = require('../middlewares/uploadFotos');
 const { v4: uuidv4 } = require('uuid');
 const { uploadFotosBienMiddleware } = require('../middlewares/uploadFotosBien');
+const { verifyToken } = require('../middlewares/authJwt');
 
 
 
@@ -54,7 +55,7 @@ router.delete('/:uuid', verifyToken, verificarPermisos(['admin']), bienesControl
 router.get('/stock', bienesController.obtenerBienesStock);
 
 // Obtener la trazabilidad de un bien
-router.get('/trazabilidad/:uuid', bienesController.obtenerTrazabilidadPorBien);
+router.get('/trazabilidad/:uuid', verifyToken, bienesController.obtenerTrazabilidadPorBien);
 
 // Registrar una compra de bienes
 router.post(

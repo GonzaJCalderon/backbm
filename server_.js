@@ -55,7 +55,7 @@ try {
   app.use('/excel', require('./src/routes/excel'));
 
   console.log('Cargando rutas de Historial Cambios...');
-  app.use('/historialcambios', require('./src/routes/historialCambios'));
+  app.use('/historialcambios', require('./src/routes/HistorialCambios'));
 
   console.log('Cargando rutas de Uploads...');
   app.use('/uploads', require('./src/routes/uploads'));
