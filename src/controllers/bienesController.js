@@ -1,11 +1,14 @@
 const { Transaccion, Bien, Usuario, Stock, DetallesBien } = require('../models');
 
-const { Op } = require('sequelize');
+const { Op, fn, col, Sequelize } = require('sequelize'); 
+
 const { uploadFileToCloudinary } = require('../middlewares/uploadFotos');
 const { v4: uuidv4 } = require('uuid');
 const cloudinary = require('cloudinary').v2;
 const { sequelize} = require('../models');
 const { uploadFotosBien} = require('../middlewares/uploadFotosBien');
+const { isUUID } = require('validator');
+
 
 
 const { generateUUID } = require('uuid');
@@ -366,61 +369,74 @@ const eliminarBien = async (req, res) => {
 
 // Obtener bienes por usuario
 const obtenerBienesPorUsuario = async (req, res) => {
-  const { uuid } = req.params;
-
-  if (!uuid || uuid.length !== 36) {
-    return res.status(400).json({ message: 'UUID inválido o no proporcionado.' });
-  }
-
-  console.log('UUID recibido en el controlador:', uuid);
-
   try {
+    const { userUuid } = req.params;
+    console.log('📌 Buscando bienes para el usuario:', userUuid);
+
+    if (!userUuid) {
+      return res.status(400).json({
+        message: 'El UUID del usuario es requerido en la ruta /bienes/usuario/:userUuid',
+      });
+    }
+
+    // Buscar bienes donde el usuario sea PROPIETARIO o COMPRADOR
     const bienes = await Bien.findAll({
-      where: { propietario_uuid: uuid },
+      where: {
+        [Op.or]: [
+          { propietario_uuid: userUuid },
+          {
+            uuid: {
+              [Op.in]: Sequelize.literal(
+                `(SELECT bien_uuid FROM transacciones WHERE comprador_uuid = '${userUuid}')`
+              ),
+            },
+          },
+        ],
+      },
       include: [
         {
           model: Stock,
           as: 'stock',
-          attributes: ['cantidad'], // Solo cantidad
+          attributes: ['uuid', 'cantidad'],
         },
         {
           model: DetallesBien,
           as: 'detalles',
-          attributes: ['identificador_unico', 'estado'], // Incluye estado del identificador
-          required: false, // Permite bienes sin detalles asociados
+          attributes: ['uuid', 'identificador_unico', 'estado', 'foto'],
+        },
+        {
+          model: Transaccion,
+          as: 'transacciones',
+          attributes: ['uuid', 'fecha', 'monto', 'cantidad', 'metodoPago'],
+          include: [
+            {
+              model: Usuario,
+              as: 'vendedorTransaccion',
+              attributes: ['nombre', 'apellido', 'email'],
+            },
+            {
+              model: Usuario,
+              as: 'compradorTransaccion',
+              attributes: ['nombre', 'apellido', 'email'],
+            },
+          ],
         },
       ],
-      order: [['createdAt', 'DESC']], // Ordenar por fecha de creación
     });
 
-    if (!bienes || bienes.length === 0) {
-      return res.status(404).json({ message: 'No se encontraron bienes para este usuario.' });
+    console.log('✅ Bienes encontrados:', JSON.stringify(bienes, null, 2)); // <-- Log para ver si el stock llega bien
+
+    if (!bienes.length) {
+      return res
+        .status(404)
+        .json({ message: 'No se encontraron bienes para este usuario.' });
     }
 
-    // Procesar bienes para incluir identificadores
-    const bienesProcesados = bienes.map((bien) => ({
-      uuid: bien.uuid,
-      tipo: bien.tipo,
-      marca: bien.marca,
-      modelo: bien.modelo,
-      descripcion: bien.descripcion,
-      precio: bien.precio,
-      stock: bien.stock?.cantidad || 0,
-      fotos: bien.fotos || [],
-      identificadores: bien.detalles.map((detalle) => ({
-        identificador_unico: detalle.identificador_unico,
-        estado: detalle.estado || 'Disponible',
-      })),
-      createdAt: bien.createdAt,
-    }));
-
-    console.log('Bienes procesados:', bienesProcesados);
-
-    return res.status(200).json(bienesProcesados);
+    return res.status(200).json(bienes);
   } catch (error) {
-    console.error('Error obteniendo bienes por usuario:', error);
+    console.error('❌ Error al obtener bienes del usuario:', error);
     return res.status(500).json({
-      message: 'Error obteniendo bienes por usuario.',
+      message: 'Error interno del servidor.',
       error: error.message,
     });
   }
@@ -477,25 +493,27 @@ const getBienesPorMarcaTipoModelo = async (req, res) => {
     const { marca, tipo, modelo } = req.query;
 
     const filtros = {};
-    if (marca) filtros.marca = marca;
     if (tipo) filtros.tipo = tipo;
+    if (marca) filtros.marca = marca;
     if (modelo) filtros.modelo = modelo;
 
     const bienes = await Bien.findAll({
       where: filtros,
     });
 
-    if (bienes.length === 0) {
+    if (!bienes.length) {
       return res.status(404).json({ message: 'No se encontraron bienes.' });
     }
 
-    res.status(200).json(bienes);
+    return res.status(200).json(bienes);
   } catch (error) {
     console.error('Error obteniendo bienes:', error);
-    res.status(500).json({ message: 'Error obteniendo bienes.', error: error.message });
+    return res.status(500).json({
+      message: 'Error obteniendo bienes.',
+      error: error.message,
+    });
   }
 };
-
 const subirStockExcel = async (req, res) => {
   try {
     // Verificar si se cargó un archivo
@@ -773,50 +791,72 @@ const registrarMarca = async (req, res) => {
 const obtenerMarcas = async (req, res) => {
   const { tipo } = req.query;
 
+  // Verifica que venga tipo
   if (!tipo) {
     return res.status(400).json({ message: 'El tipo de bien es obligatorio.' });
   }
 
   try {
+    // Opción: normalizar si quieres quitar tildes:
+    // let tipoBuscado = tipo.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+
     const marcas = await Bien.findAll({
-      where: { tipo },
-      attributes: [[sequelize.fn('DISTINCT', sequelize.col('marca')), 'marca']],
+      where: { tipo }, // asume que la base guarda EXACTAMENTE "teléfono movil" si es el caso
+      attributes: [
+        [fn('DISTINCT', col('marca')), 'marca'] // Distintas marcas
+      ],
     });
 
     if (!marcas.length) {
       return res.status(404).json({ message: 'No se encontraron marcas para este tipo de bien.' });
     }
 
-    res.status(200).json({ marcas: marcas.map((m) => m.marca) });
+    // Extraer solo la columna marca
+    const listaMarcas = marcas.map((m) => m.marca);
+
+    return res.status(200).json({ marcas: listaMarcas });
   } catch (error) {
     console.error('Error al obtener marcas:', error);
-    res.status(500).json({ message: 'Error interno al obtener las marcas.' });
+    return res.status(500).json({ message: 'Error interno al obtener las marcas.' });
   }
 };
+
 
 const obtenerModelos = async (req, res) => {
   const { tipo, marca } = req.query;
 
   if (!tipo || !marca) {
-    return res.status(400).json({ message: 'El tipo y la marca son obligatorios.' });
+    return res
+      .status(400)
+      .json({ message: 'El tipo y la marca son obligatorios.' });
   }
 
   try {
-    // Buscar los modelos asociados al tipo y marca
     const modelos = await Bien.findAll({
-      where: { tipo, marca },
-      attributes: [[sequelize.fn('DISTINCT', sequelize.col('modelo')), 'modelo']],
+      where: {
+        tipo,
+        marca,
+      },
+      attributes: [
+        [fn('DISTINCT', col('modelo')), 'modelo']
+      ],
     });
 
     if (!modelos.length) {
-      return res.status(404).json({ message: 'No se encontraron modelos para esta combinación de tipo y marca.' });
+      return res
+        .status(404)
+        .json({ message: 'No se encontraron modelos para esta combinación de tipo y marca.' });
     }
 
-    // Retornar los modelos como un array
-    res.status(200).json({ modelos: modelos.map((m) => m.modelo) });
+    const listaModelos = modelos.map((m) => m.modelo);
+
+    return res.status(200).json({ modelos: listaModelos });
   } catch (error) {
-    console.error('Error al obtener modelos:', error.message);
-    res.status(500).json({ message: 'Error interno al obtener los modelos.', error: error.message });
+    console.error('Error al obtener modelos:', error);
+    return res.status(500).json({
+      message: 'Error interno al obtener los modelos.',
+      error: error.message,
+    });
   }
 };
 

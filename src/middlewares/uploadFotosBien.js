@@ -31,7 +31,7 @@ const subirArchivoACloudinary = (fileBuffer) => {
 
 // Middleware Unificado
 const uploadFotosBienMiddleware = (req, res, next) => {
-  upload.array('fotos', 10)(req, res, async (err) => {
+  upload.any()(req, res, async (err) => { // ⬅️ Cambia de `array('fotos', 10)` a `any()`
     if (err) {
       console.error('Error en Multer:', err);
       return res.status(400).json({ message: 'Error al procesar las fotos.' });
@@ -48,10 +48,10 @@ const uploadFotosBienMiddleware = (req, res, next) => {
         req.files.map((file) => subirArchivoACloudinary(file.buffer))
       );
       req.uploadedPhotos = urls; // Almacena las URLs en el objeto de la solicitud
-      console.log('Fotos subidas a Cloudinary:', urls);
+      console.log('✅ Fotos subidas a Cloudinary:', urls);
       next();
     } catch (error) {
-      console.error('Error al subir fotos a Cloudinary:', error);
+      console.error('❌ Error al subir fotos a Cloudinary:', error);
       return res.status(500).json({ message: 'Error al subir fotos a Cloudinary.', error: error.message });
     }
   });

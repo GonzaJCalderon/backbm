@@ -174,14 +174,14 @@ const login = async (req, res) => {
     const token = jwt.sign(
       { uuid: usuario.uuid, email: usuario.email, rol: usuario.rolDefinitivo },
       secretKey,
-      { expiresIn: '1h' }
+      { expiresIn: '4h' }
     );
 
     // Generar refresh token
     const refreshToken = jwt.sign(
       { uuid: usuario.uuid },
       refreshSecret,
-      { expiresIn: '7d' }
+      { expiresIn: '7h' }
     );
 
     // Construir objeto de dirección

@@ -65,7 +65,7 @@ router.post(
 );
 
 // Obtener bienes relacionados con un usuario
-router.get('/usuario/:uuid', verifyToken, bienesController.obtenerBienesPorUsuario);
+router.get('/usuario/:userUuid', bienesController.obtenerBienesPorUsuario);
 
 // Actualizar stock por parámetros
 router.post('/bienes/actualizarStock', bienesController.actualizarStockPorParametros);

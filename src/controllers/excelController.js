@@ -85,146 +85,192 @@ const processExcel = async (req, res) => {
     }
 };
 
-const subirFotoACloudinary = async (foto) => {
-    if (!foto || !foto.buffer) {
-        throw new Error('El archivo de la foto está vacío o no es válido.');
-    }
+const subirFotoACloudinary = async (fotoBase64) => {
+  if (!fotoBase64 || typeof fotoBase64 !== 'string' || !fotoBase64.startsWith('data:image')) {
+      throw new Error('El archivo de la foto está vacío o no es válido.');
+  }
 
-    return new Promise((resolve, reject) => {
-        cloudinary.uploader.upload_stream({ resource_type: 'image' }, (error, result) => {
-            if (error) {
-                console.error('Error al subir foto a Cloudinary:', error);
-                return reject(error);
-            }
-            resolve({ secure_url: result.secure_url });
-        }).end(foto.buffer);
-    });
+  try {
+      return new Promise((resolve, reject) => {
+          const base64Data = fotoBase64.replace(/^data:image\/\w+;base64,/, ''); // Elimina el encabezado `data:image`
+          const buffer = Buffer.from(base64Data, 'base64'); // Convierte a buffer
+
+          cloudinary.uploader.upload_stream({ resource_type: 'image' }, (error, result) => {
+              if (error) {
+                  console.error('Error al subir foto a Cloudinary:', error);
+                  return reject(new Error('Error al subir la foto a Cloudinary.'));
+              }
+              resolve({ secure_url: result.secure_url });
+          }).end(buffer);
+      });
+  } catch (error) {
+      console.error('Error interno al procesar la foto:', error.message);
+      throw new Error('Error interno al procesar la foto.');
+  }
 };
+
+
+
 
 const finalizarCreacionBienes = async (req, res) => {
-    let transaction;
+  let transaction;
 
-    try {
-        const { bienes } = req.body;
+  try {
+    const { bienes } = req.body;
 
-        if (!Array.isArray(bienes) || bienes.length === 0) {
-            return res.status(400).json({ message: 'No se proporcionaron bienes para registrar.' });
-        }
-
-        const bienesNormalizados = bienes.map((bien) => ({
-            tipo: bien.tipo || bien.Tipo,
-            descripcion: bien.descripcion || bien['Descripción'],
-            precio: bien.precio || bien.Precio,
-            marca: bien.marca || bien.Marca,
-            modelo: bien.modelo || bien.Modelo,
-            fotos: bien.fotos || [],
-            cantidadStock: bien.cantidadStock || bien.CantidadStock || 0,
-            imei: bien.imei || null, // Puede estar vacío
-        }));
-
-        transaction = await sequelize.transaction();
-
-        const bienesGuardados = [];
-
-        for (const bien of bienesNormalizados) {
-            if (!bien.tipo || !bien.marca || !bien.modelo || bien.cantidadStock <= 0) {
-                console.error(`Datos obligatorios faltantes para el bien: ${JSON.stringify(bien)}`);
-                continue;
-            }
-
-            const bienExistente = await Bien.findOne({
-                where: { tipo: bien.tipo, marca: bien.marca, modelo: bien.modelo },
-            });
-
-            let nuevoBien;
-            if (bienExistente) {
-                // Actualizar stock existente
-                const stockExistente = await Stock.findOne({
-                    where: { bien_uuid: bienExistente.uuid },
-                });
-
-                if (stockExistente) {
-                    await stockExistente.update(
-                        { cantidad: stockExistente.cantidad + bien.cantidadStock },
-                        { transaction }
-                    );
-                } else {
-                    await Stock.create(
-                        {
-                            cantidad: bien.cantidadStock,
-                            bien_uuid: bienExistente.uuid,
-                        },
-                        { transaction }
-                    );
-                }
-                nuevoBien = bienExistente;
-            } else {
-                const fotosSubidas = bien.fotos.length
-                    ? await Promise.all(
-                          bien.fotos.map((foto) => subirFotoACloudinary(foto))
-                      )
-                    : [];
-
-                nuevoBien = await Bien.create(
-                    {
-                        tipo: bien.tipo,
-                        descripcion: bien.descripcion,
-                        precio: bien.precio,
-                        marca: bien.marca,
-                        modelo: bien.modelo,
-                        fotos: fotosSubidas.filter((foto) => foto),
-                    },
-                    { transaction }
-                );
-
-                await Stock.create(
-                    {
-                        cantidad: bien.cantidadStock,
-                        bien_uuid: nuevoBien.uuid,
-                    },
-                    { transaction }
-                );
-            }
-
-            // Generar identificadores únicos si no se proporcionaron
-            for (let i = 0; i < bien.cantidadStock; i++) {
-                if (bien.tipo.toLowerCase() === 'teléfono móvil' && bien.imei) {
-                    const imeiExistente = await DetallesBien.findOne({
-                        where: { identificador_unico: bien.imei },
-                    });
-
-                    if (!imeiExistente) {
-                        await DetallesBien.create(
-                            {
-                                bien_uuid: nuevoBien.uuid,
-                                identificador_unico: bien.imei,
-                            },
-                            { transaction }
-                        );
-                    }
-                } else {
-                    // Generar identificador único para cada unidad
-                    await DetallesBien.create(
-                        {
-                            bien_uuid: nuevoBien.uuid,
-                            identificador_unico: `${nuevoBien.uuid}-${uuidv4()}`,
-                        },
-                        { transaction }
-                    );
-                }
-            }
-
-            bienesGuardados.push({ bien: nuevoBien.toJSON(), stock: bien.cantidadStock });
-        }
-
-        await transaction.commit();
-        res.status(201).json({ message: 'Bienes procesados correctamente.', bienes: bienesGuardados });
-    } catch (error) {
-        if (transaction) await transaction.rollback();
-        console.error('Error al finalizar la creación de bienes:', error);
-        res.status(500).json({ message: 'Error al registrar los bienes.', detalles: error.message });
+    if (!Array.isArray(bienes) || bienes.length === 0) {
+      return res.status(400).json({ message: 'No se proporcionaron bienes para registrar.' });
     }
+
+    const propietario_uuid = req.user.uuid; // Obtener el propietario desde el token
+    if (!propietario_uuid) {
+      return res.status(401).json({ message: 'Usuario no autenticado.' });
+    }
+
+    transaction = await sequelize.transaction();
+
+    const bienesGuardados = [];
+
+    for (const bien of bienes) {
+      // Validar campos obligatorios
+      if (!bien.tipo || !bien.marca || !bien.modelo || bien.cantidadStock <= 0) {
+        console.error(`Datos obligatorios faltantes para el bien: ${JSON.stringify(bien)}`);
+        continue; // salta este bien, sigue con el siguiente
+      }
+
+      // Subir fotos del array bien.fotos (si existen)
+      const fotosSubidas = bien.fotos?.length
+        ? await Promise.all(
+            bien.fotos.map(async (fotoBase64, index) => {
+              try {
+                // Asume que subirFotoACloudinary(fotoBase64) devuelve { secure_url: '...'}
+                return await subirFotoACloudinary(fotoBase64);
+              } catch (error) {
+                console.error(`Error al subir la foto ${index + 1}:`, error.message);
+                throw new Error('Error al subir una o más fotos.');
+              }
+            })
+          )
+        : [];
+
+      // Verificar si ya existe el bien con (tipo, marca, modelo, propietario_uuid)
+      const bienExistente = await Bien.findOne({
+        where: { tipo: bien.tipo, marca: bien.marca, modelo: bien.modelo, propietario_uuid },
+        transaction,
+      });
+
+      let nuevoBien;
+      if (bienExistente) {
+        // Ya existe => Actualizar stock
+        const stockExistente = await Stock.findOne({
+          where: { bien_uuid: bienExistente.uuid },
+          transaction,
+        });
+
+        if (stockExistente) {
+          await stockExistente.update(
+            { cantidad: stockExistente.cantidad + bien.cantidadStock },
+            { transaction }
+          );
+        } else {
+          await Stock.create(
+            {
+              cantidad: bien.cantidadStock,
+              bien_uuid: bienExistente.uuid,
+              usuario_uuid: propietario_uuid, // si tu tabla stock tiene este campo
+            },
+            { transaction }
+          );
+        }
+        nuevoBien = bienExistente;
+      } else {
+        // Crear un nuevo Bien
+        nuevoBien = await Bien.create(
+          {
+            tipo: bien.tipo,
+            descripcion: bien.descripcion,
+            precio: bien.precio,
+            marca: bien.marca,
+            modelo: bien.modelo,
+            // Guardar las fotos subidas a Cloudinary a nivel "Bien"
+            fotos: fotosSubidas.map((f) => f.secure_url),
+            propietario_uuid, // Asigna el propietario
+          },
+          { transaction }
+        );
+
+        // Crear Stock
+        await Stock.create(
+          {
+            cantidad: bien.cantidadStock,
+            bien_uuid: nuevoBien.uuid,
+            usuario_uuid: propietario_uuid, // asume que tu stock tiene este campo
+          },
+          { transaction }
+        );
+      }
+
+      // Crear tantos registros en DetallesBien como indique la cantidadStock
+      // Si es 'teléfono móvil' con IMEIs => usar la IMEI correspondiente y su foto
+      for (let i = 0; i < bien.cantidadStock; i++) {
+        if (bien.tipo.toLowerCase() === 'teléfono móvil' && bien.imeis && bien.imeis[i]) {
+          const imei = bien.imeis[i];
+          // Toma la foto i-ésima si existe. Sino, null
+          const foto = fotosSubidas[i]?.secure_url || null;
+
+          // Verificar si ya existe un DetallesBien con ese IMEI
+          const imeiExistente = await DetallesBien.findOne({
+            where: { identificador_unico: imei },
+            transaction,
+          });
+
+          if (!imeiExistente) {
+            await DetallesBien.create(
+              {
+                bien_uuid: nuevoBien.uuid,
+                identificador_unico: imei,
+                foto, // Guardamos la foto en el campo 'foto' de DetallesBien
+              },
+              { transaction }
+            );
+          }
+        } else {
+          // No es teléfono móvil => o no tiene IMEIs => generar identificador random
+          const identificador = `${nuevoBien.uuid}-${uuidv4()}`;
+          const foto = fotosSubidas[i]?.secure_url || null;
+
+          await DetallesBien.create(
+            {
+              bien_uuid: nuevoBien.uuid,
+              identificador_unico: identificador,
+              foto,
+            },
+            { transaction }
+          );
+        }
+      }
+
+      // Agregar a bienesGuardados la info
+      bienesGuardados.push({ bien: nuevoBien.toJSON(), stock: bien.cantidadStock });
+    }
+
+    await transaction.commit();
+    return res.status(201).json({
+      message: 'Bienes registrados correctamente.',
+      bienes: bienesGuardados,
+    });
+  } catch (error) {
+    if (transaction) await transaction.rollback();
+    console.error('Error al finalizar la creación de bienes:', error.message);
+    return res.status(500).json({
+      message: 'Error al registrar los bienes.',
+      detalles: error.message,
+    });
+  }
 };
+
+
+
 
 
 

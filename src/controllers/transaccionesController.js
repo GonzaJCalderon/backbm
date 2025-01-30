@@ -22,174 +22,91 @@ cloudinary.config({
 });
 
 
-
-
 const registrarCompra = async (req, res) => {
+  let transaction;
   try {
-    // Usuario autenticado desde el token
-    const compradorId = req.user?.uuid;
-    const comprador = await Usuario.findOne({ where: { uuid: compradorId } });
+      console.log("📌 Archivos recibidos en req.files:", req.files);
+      console.log("📌 Datos recibidos en req.body:", req.body);
 
-    if (!comprador) {
-      return res.status(404).json({ message: 'Usuario no encontrado.' });
-    }
+      const { tipo, marca, modelo, descripcion, precio, cantidad, metodoPago, vendedorId, dniComprador } = req.body;
 
-    // Recuperar el DNI desde el token o el formulario
-    const dniComprador = req.body.dniComprador || comprador.dni;
+      // ✅ Buscar comprador
+      const comprador = await Usuario.findOne({ where: { dni: dniComprador } });
+      if (!comprador) {
+          return res.status(400).json({ message: "No se encontró un usuario con ese DNI." });
+      }
 
-    // Datos del cuerpo de la solicitud
-    const {
-      tipo,
-      marca,
-      modelo,
-      descripcion,
-      precio,
-      cantidad,
-      metodoPago,
-      vendedorId,
-    } = req.body;
+      // 🔄 Iniciar una transacción
+      transaction = await sequelize.transaction();
 
-    // Validar datos requeridos
-    if (
-      !tipo ||
-      !marca ||
-      !modelo ||
-      !descripcion ||
-      !precio ||
-      !cantidad ||
-      !metodoPago ||
-      !vendedorId ||
-      !dniComprador
-    ) {
-      return res.status(400).json({
-        message: 'Faltan datos obligatorios.',
-        missingFields: {
+      // ✅ Crear el bien
+      const bien = await Bien.create({
           tipo,
           marca,
           modelo,
           descripcion,
-          precio,
-          cantidad,
-          metodoPago,
-          vendedorId,
-          dniComprador,
-        },
-      });
-    }
+          precio: parseFloat(precio),
+          propietario_uuid: vendedorId,
+      }, { transaction });
 
-    console.log('Datos recibidos:', {
-      tipo,
-      marca,
-      modelo,
-      descripcion,
-      precio,
-      cantidad,
-      metodoPago,
-      vendedorId,
-      compradorId,
-      dniComprador,
-    });
+      console.log("✅ Bien creado en la base de datos:", bien.uuid);
 
-    // Iniciar transacción
-    const transaction = await sequelize.transaction();
-
-    try {
-      // Buscar o crear el bien
-      let bien = await Bien.findOne({
-        where: { tipo, marca, modelo },
-        transaction,
-      });
-
-      if (!bien) {
-        // Crear un nuevo bien si no existe
-        bien = await Bien.create(
-          {
-            uuid: uuidv4(),
-            tipo,
-            marca,
-            modelo,
-            descripcion,
-            precio: parseFloat(precio),
-            fotos: req.uploadedPhotos || [], // Fotos opcionales
-            propietario_uuid: compradorId,
-          },
-          { transaction }
-        );
-        console.log('Nuevo bien creado:', bien);
-      } else {
-        console.log('Bien existente encontrado:', bien);
-
-        // Actualizar datos del bien si faltan
-        bien.descripcion = descripcion;
-        bien.precio = parseFloat(precio);
-        bien.fotos = req.uploadedPhotos || [];
-        bien.propietario_uuid = compradorId;
-        await bien.save({ transaction });
-        console.log('Bien actualizado:', bien);
+      // 📸 Guardar fotos generales (solo si NO es un teléfono móvil)
+      if (tipo !== "teléfono movil" && req.uploadedPhotos.length > 0) {
+          await bien.update({ fotos: req.uploadedPhotos }, { transaction });
+          console.log("✅ Fotos del bien guardadas:", req.uploadedPhotos);
       }
 
-      // Manejar el stock del comprador
-      const stockExistente = await Stock.findOne({
-        where: { bien_uuid: bien.uuid, usuario_uuid: compradorId },
-        transaction,
-      });
+      // 📌 Guardar IMEIs y sus fotos correctamente
+      let imeis = [];
+      if (req.body.imeis) {
+          const imeisArray = typeof req.body.imeis === "string" ? JSON.parse(req.body.imeis) : req.body.imeis;
 
-      if (stockExistente) {
-        stockExistente.cantidad += parseInt(cantidad, 10);
-        await stockExistente.save({ transaction });
-      } else {
-        await Stock.create(
-          {
-            uuid: uuidv4(),
-            bien_uuid: bien.uuid,
-            cantidad: parseInt(cantidad, 10),
-            usuario_uuid: compradorId,
-          },
-          { transaction }
-        );
+          imeis = imeisArray.map((imei, index) => ({
+              bien_uuid: bien.uuid,
+              identificador_unico: imei.imei,
+              estado: "disponible",
+              foto: req.uploadedIMEIsPhotos[index] || null, // ✅ Asegurar que la URL se guarde
+          }));
+
+          await DetallesBien.bulkCreate(imeis, { transaction });
+
+          console.log("✅ IMEIs registrados con sus fotos:", imeis);
       }
 
-      // Registrar la transacción
-      const nuevaTransaccion = await Transaccion.create(
-        {
+      // ✅ Registrar la compra
+      const transaccion = await Transaccion.create({
+          bien_uuid: bien.uuid,
+          vendedor_uuid: vendedorId,
+          comprador_uuid: comprador.uuid,
           cantidad: parseInt(cantidad, 10),
           metodoPago,
-          comprador_uuid: compradorId,
-          vendedor_uuid: vendedorId,
-          bien_uuid: bien.uuid,
-          fotos: req.uploadedPhotos || [],
+          fecha: new Date(),
           precio: parseFloat(precio),
-        },
-        { transaction }
-      );
+          monto: parseFloat(precio) * parseInt(cantidad, 10),
+      }, { transaction });
 
-      console.log('Transacción registrada:', nuevaTransaccion);
+      console.log("✅ Transacción registrada con éxito:", transaccion.uuid);
 
-      // Confirmar la transacción
+      // ✅ Confirmar la transacción
       await transaction.commit();
 
-      res.status(201).json({
-        message: 'Compra registrada con éxito.',
-        bien,
-        transaccion: nuevaTransaccion,
+      return res.status(201).json({
+          message: "Compra registrada con éxito.",
+          bien,
+          imeis,
+          transaccion,
       });
-    } catch (error) {
-      // Revertir transacción en caso de error
-      await transaction.rollback();
-      console.error('Error al registrar la compra (transacción):', error);
-      res.status(500).json({
-        message: 'Error al registrar la compra.',
-        detalles: error.message,
-      });
-    }
+
   } catch (error) {
-    console.error('Error general al registrar la compra:', error);
-    res.status(500).json({
-      message: 'Error interno del servidor.',
-      detalles: error.message,
-    });
+      if (transaction) await transaction.rollback();
+      console.error("❌ Error en registrarCompra:", error);
+      return res.status(500).json({ message: "Error interno del servidor.", error });
   }
 };
+
+
+
 
 
 const crearBienYStock = async ({ tipo, marca, modelo, cantidad, precio, vendedorId, transaction }) => {
@@ -444,12 +361,12 @@ const obtenerTransaccionesPorUsuario = async (req, res) => {
         {
           model: Bien,
           as: 'bienTransaccion',
-          attributes: ['descripcion', 'marca', 'modelo', 'precio', 'fotos', 'tipo'],
+          attributes: ['uuid', 'descripcion', 'marca', 'modelo', 'precio', 'fotos', 'tipo'],
           include: [
             {
               model: DetallesBien,
               as: 'detalles',
-              attributes: ['identificador_unico', 'estado'],
+              attributes: ['identificador_unico', 'estado', 'foto'], // ✅ Incluir la foto de los IMEIs
             },
           ],
         },
@@ -470,9 +387,11 @@ const obtenerTransaccionesPorUsuario = async (req, res) => {
       return res.json({ message: 'No se encontraron transacciones para este usuario.', transacciones: [] });
     }
 
+    console.log('✅ Transacciones encontradas:', JSON.stringify(transacciones, null, 2)); 
+
     res.json(transacciones);
   } catch (error) {
-    console.error('Error al obtener transacciones:', error.message);
+    console.error('❌ Error al obtener transacciones:', error.message);
     res.status(500).json({
       message: 'Error al obtener transacciones.',
       detalles: error.message,

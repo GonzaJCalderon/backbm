@@ -1,4 +1,3 @@
-
 const multer = require('multer');
 const path = require('path');
 const cloudinary = require('cloudinary').v2;
@@ -13,7 +12,7 @@ cloudinary.config({
 // Configuración de almacenamiento en memoria para Multer
 const storageFotos = multer.memoryStorage();
 
-// Configuración de Multer
+// ✅ Modificar para aceptar tanto fotos generales como fotos de IMEIs
 const uploadFotos = multer({
   storage: storageFotos,
   limits: { fileSize: 5 * 1024 * 1024 }, // Limitar a 5MB por archivo
@@ -25,40 +24,65 @@ const uploadFotos = multer({
     if (extname && mimetype) {
       cb(null, true);
     } else {
-      console.error('Archivo rechazado por tipo o extensión no permitida:', file.originalname);
+      console.error('❌ Archivo rechazado por tipo no permitido:', file.originalname);
       cb(new Error('Error: Solo se permiten imágenes JPG, JPEG y PNG'));
     }
   },
-}).array('fotos', 10); // Soporte para 10 fotos máximo
+}).fields([
+  { name: 'fotos', maxCount: 10 }, // ✅ Fotos generales (NO IMEIs)
+  { name: 'imeis[0][foto]', maxCount: 1 }, // ✅ IMEI 0
+  { name: 'imeis[1][foto]', maxCount: 1 }, // ✅ IMEI 1 (Agregar más si es necesario)
+  { name: 'imeis[2][foto]', maxCount: 1 }, // ✅ IMEI 2
+  { name: 'imeis[3][foto]', maxCount: 1 }, // ✅ IMEI 3
+]); 
 
 // Middleware para manejar la carga de fotos y subirlas a Cloudinary
 const uploadFotosMiddleware = async (req, res, next) => {
-  console.log('Inicio del middleware de subida de fotos');
+  console.log('📤 Inicio del middleware de subida de fotos');
   uploadFotos(req, res, async (err) => {
     if (err) {
-      console.error('Error al cargar fotos:', err);
+      console.error('❌ Error al cargar fotos:', err);
       return res.status(400).json({ error: err.message });
     }
     
-    console.log('Archivos recibidos en req.files:', req.files); // Log para depurar archivos recibidos
-    if (!req.files || req.files.length === 0) {
-      console.error('No se recibieron fotos en la solicitud.');
+    console.log('📥 Archivos recibidos en req.files:', req.files);
+    if (!req.files || Object.keys(req.files).length === 0) {
+      console.error('⚠️ No se recibieron fotos en la solicitud.');
       return res.status(400).json({ error: 'No se encontraron fotos para cargar.' });
     }
 
     try {
       const uploadedPhotos = [];
-      for (const file of req.files) {
-        console.log('Subiendo archivo a Cloudinary:', file.originalname); // Log por archivo
-        const fotoUrl = await uploadFileToCloudinary(file.buffer); // Sube el buffer directamente a Cloudinary
-        console.log('URL de la foto subida:', fotoUrl); // Log de la URL devuelta por Cloudinary
-        uploadedPhotos.push(fotoUrl);
+
+      // ✅ Subir fotos generales si existen
+      if (req.files['fotos']) {
+        for (const file of req.files['fotos']) {
+          console.log('📤 Subiendo foto general a Cloudinary:', file.originalname);
+          const fotoUrl = await uploadFileToCloudinary(file.buffer);
+          uploadedPhotos.push(fotoUrl);
+        }
       }
-      req.uploadedPhotos = uploadedPhotos; // Añade las fotos subidas al objeto de la solicitud
-      console.log('Fotos cargadas correctamente:', uploadedPhotos);
+
+      // ✅ Subir fotos de IMEIs si existen
+      const uploadedIMEIsPhotos = {};
+      for (let i = 0; i < 10; i++) {
+        const imeiFotoKey = `imeis[${i}][foto]`;
+        if (req.files[imeiFotoKey]) {
+          const file = req.files[imeiFotoKey][0];
+          console.log(`📤 Subiendo foto del IMEI ${i} a Cloudinary:`, file.originalname);
+          const fotoUrl = await uploadFileToCloudinary(file.buffer);
+          uploadedIMEIsPhotos[i] = fotoUrl;
+        }
+      }
+
+      req.uploadedPhotos = uploadedPhotos; // ✅ Fotos generales
+      req.uploadedIMEIsPhotos = uploadedIMEIsPhotos; // ✅ Fotos de IMEIs
+
+      console.log('✅ Fotos generales cargadas:', uploadedPhotos);
+      console.log('✅ Fotos de IMEIs cargadas:', uploadedIMEIsPhotos);
       next();
     } catch (uploadError) {
-      console.error('Error al subir fotos a Cloudinary:', uploadError);
+      console.error('❌ Error al subir fotos a Cloudinary:', uploadError);
       res.status(500).json({ error: 'Error al subir fotos a Cloudinary.' });
     }
   });
@@ -66,27 +90,21 @@ const uploadFotosMiddleware = async (req, res, next) => {
 
 // Subir un archivo a Cloudinary
 const uploadFileToCloudinary = async (fileBuffer) => {
-  console.log('Subiendo archivo a Cloudinary desde buffer');
+  console.log('📤 Subiendo archivo a Cloudinary desde buffer');
   return new Promise((resolve, reject) => {
     const stream = cloudinary.uploader.upload_stream(
       { resource_type: 'image' },
       (error, result) => {
         if (error) {
-          console.error('Error al subir archivo a Cloudinary:', error);
+          console.error('❌ Error al subir archivo a Cloudinary:', error);
           return reject(error);
         }
-        console.log('Resultado de la subida a Cloudinary:', result);
+        console.log('✅ Resultado de la subida a Cloudinary:', result);
         resolve(result.secure_url);
       }
     );
     stream.end(fileBuffer);
   });
 };
-
-
-
-
-
-
 
 module.exports = { uploadFotosMiddleware, uploadFileToCloudinary, uploadFotos };

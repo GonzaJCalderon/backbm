@@ -49,7 +49,7 @@ const loginUsuario = async (req, res) => {
                 rolDefinitivo: user.rolDefinitivo // Incluye el rol en el token
             }, 
             SECRET_KEY, 
-            { expiresIn: '1h' } // Expiración del token
+            { expiresIn: '4h' } // Expiración del token
         );
 
         console.log('Respuesta final del backend:', { usuario: responseUser, token });

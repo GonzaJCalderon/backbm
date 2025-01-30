@@ -34,8 +34,19 @@ Bien.hasOne(Stock, { foreignKey: 'bien_uuid', as: 'stock', onDelete: 'CASCADE', 
 Stock.belongsTo(Bien, { foreignKey: 'bien_uuid', as: 'bienStock' });
 
 // Asociaciones entre Bien y DetallesBien
-Bien.hasMany(DetallesBien, { foreignKey: 'bien_uuid', as: 'detalles' });
-DetallesBien.belongsTo(Bien, { foreignKey: 'bien_uuid', as: 'detalleBien' });
+Bien.hasMany(DetallesBien, {
+  foreignKey: 'bien_uuid',
+  as: 'detalles',
+  onDelete: 'CASCADE',
+  onUpdate: 'CASCADE',
+});
+DetallesBien.belongsTo(Bien, {
+  foreignKey: 'bien_uuid',
+  as: 'detalleBien',
+  onDelete: 'CASCADE',
+  onUpdate: 'CASCADE',
+});
+
 
 // Relación entre Usuario y HistorialCambios
 Usuario.hasMany(HistorialCambios, {
