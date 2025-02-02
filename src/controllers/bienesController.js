@@ -37,34 +37,47 @@ const obtenerBienes = async (req, res) => {
         {
           model: DetallesBien,
           as: 'detalles',
-          attributes: ['identificador_unico', 'estado'], // Incluye el estado del identificador
+          attributes: ['identificador_unico', 'estado', 'foto'],
         },
         {
           model: Transaccion,
           as: 'transacciones',
-          attributes: ['vendedor_uuid', 'comprador_uuid', 'cantidad', 'imeis'],
+          attributes: ['createdAt'],
           include: [
-            {
-              model: Usuario,
-              as: 'vendedorTransaccion',
-              attributes: ['nombre', 'apellido'],
-            },
-            {
-              model: Usuario,
-              as: 'compradorTransaccion',
-              attributes: ['nombre', 'apellido'],
-            },
+            { model: Usuario, as: 'compradorTransaccion', attributes: ['nombre', 'apellido'] },
           ],
         },
       ],
+      order: [['createdAt', 'DESC']],
     });
 
-    res.status(200).json(bienes);
+    console.log("📌 Bienes encontrados en BD:", JSON.stringify(bienes, null, 2));
+
+    if (!bienes.length) {
+      return res.status(404).json({ error: 'No se encontraron bienes.' });
+    }
+
+    const bienesTransformados = bienes.map(bien => ({
+      ...bien.get(),
+      todasLasFotos: [
+        ...(bien.fotos || []),
+        ...(bien.detalles?.map(d => d.foto).filter(Boolean) || []),
+      ],
+      stock: bien.tipo.toLowerCase().includes("teléfono movil") && bien.detalles
+        ? bien.detalles.filter(d => d.estado === "disponible").length
+        : bien.stock?.cantidad ?? 0,
+    }));
+
+    console.log("📌 Bienes transformados antes de enviar:", JSON.stringify(bienesTransformados, null, 2));
+
+    res.status(200).json(bienesTransformados);
   } catch (error) {
-    console.error('Error obteniendo bienes:', error);
+    console.error('❌ Error obteniendo bienes:', error);
     res.status(500).json({ error: 'Error interno al obtener bienes.' });
   }
 };
+
+
 
 
 // Obtener bien por ID
@@ -611,22 +624,61 @@ const obtenerTrazabilidadPorBien = async (req, res) => {
         {
           model: Bien,
           as: 'bienTransaccion',
-          attributes: ['uuid', 'descripcion', 'marca', 'modelo'],
+          attributes: ['uuid', 'descripcion', 'marca', 'modelo', 'precio', 'fotos', 'tipo'],
+          include: [
+            {
+              model: DetallesBien,
+              as: 'detalles',
+              attributes: ['identificador_unico', 'estado', 'foto'],
+            },
+          ],
         },
       ],
+      order: [['fecha', 'DESC']],
     });
 
     if (!transacciones.length) {
-      // Devuelve un 200 con un mensaje informativo
       return res.status(200).json({ message: 'Este bien aún no tiene transacciones.' });
     }
 
-    res.status(200).json(transacciones); // Devuelve las transacciones si existen
+    // Transformar datos para extraer correctamente la dirección y evitar valores nulos
+    const transaccionesTransformadas = transacciones.map(transaccion => {
+      const comprador = transaccion.compradorTransaccion;
+      const vendedor = transaccion.vendedorTransaccion;
+
+      return {
+        ...transaccion.toJSON(),
+        compradorTransaccion: {
+          nombre: comprador?.nombre || 'Sin nombre',
+          apellido: comprador?.apellido || '',
+          dni: comprador?.dni || 'N/A',
+          email: comprador?.email || 'N/A',
+          cuit: comprador?.cuit || 'N/A',
+          direccion: comprador?.direccion
+            ? `${comprador.direccion.calle}, ${comprador.direccion.altura}, ${comprador.direccion.barrio}, ${comprador.direccion.departamento}`
+            : 'Sin dirección',
+        },
+        vendedorTransaccion: {
+          nombre: vendedor?.nombre || 'Sin nombre',
+          apellido: vendedor?.apellido || '',
+          dni: vendedor?.dni || 'N/A',
+          email: vendedor?.email || 'N/A',
+          cuit: vendedor?.cuit || 'N/A',
+          direccion: vendedor?.direccion
+            ? `${vendedor.direccion.calle}, ${vendedor.direccion.altura}, ${vendedor.direccion.barrio}, ${vendedor.direccion.departamento}`
+            : 'Sin dirección',
+        },
+      };
+    });
+
+    res.status(200).json(transaccionesTransformadas);
   } catch (error) {
-    console.error('Error al obtener trazabilidad:', error);
+    console.error('❌ Error al obtener trazabilidad:', error);
     res.status(500).json({ message: 'Error al obtener trazabilidad.', detalles: error.message });
   }
 };
+
+
 
 
 
