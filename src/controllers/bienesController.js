@@ -378,9 +378,7 @@ const eliminarBien = async (req, res) => {
 
 
 
-// bienesController.js
-
-// Obtener bienes por usuario
+// Obtener bienes por usuario (controlador modificado)
 const obtenerBienesPorUsuario = async (req, res) => {
   try {
     const { userUuid } = req.params;
@@ -392,7 +390,7 @@ const obtenerBienesPorUsuario = async (req, res) => {
       });
     }
 
-    // Buscar bienes donde el usuario sea PROPIETARIO o COMPRADOR
+    // Buscar bienes donde el usuario sea propietario o comprador
     const bienes = await Bien.findAll({
       where: {
         [Op.or]: [
@@ -410,7 +408,7 @@ const obtenerBienesPorUsuario = async (req, res) => {
         {
           model: Stock,
           as: 'stock',
-          attributes: ['uuid', 'cantidad'],
+          attributes: ['cantidad'],
         },
         {
           model: DetallesBien,
@@ -435,17 +433,46 @@ const obtenerBienesPorUsuario = async (req, res) => {
           ],
         },
       ],
+      order: [['createdAt', 'DESC']],
     });
 
-    console.log('✅ Bienes encontrados:', JSON.stringify(bienes, null, 2)); // <-- Log para ver si el stock llega bien
+    console.log('✅ Bienes encontrados:', JSON.stringify(bienes, null, 2));
 
     if (!bienes.length) {
-      return res
-        .status(404)
-        .json({ message: 'No se encontraron bienes para este usuario.' });
+      return res.status(404).json({ message: 'No se encontraron bienes para este usuario.' });
     }
 
-    return res.status(200).json(bienes);
+    // Transformar los datos para incluir precio, stock calculado y fotos combinadas
+    const bienesTransformados = bienes.map(bienInstance => {
+      const bien = bienInstance.get();
+
+      // Combinar las fotos: usamos bien.fotos y las fotos que vienen en bien.detalles
+      const fotosCombinadas = [
+        ...(bien.fotos || []),
+        ...((bien.detalles && bien.detalles.length > 0)
+            ? bien.detalles.map(det => det.foto).filter(foto => foto)
+            : []),
+      ];
+
+      // Calcular el stock:
+      // - Si es "teléfono movil" se cuentan los detalles con estado "disponible"
+      // - En otro caso, se usa bien.stock.cantidad (o bien.stock) o se asigna 0
+      const stockCalculado =
+        bien.tipo.toLowerCase().includes("teléfono movil") && bien.detalles && bien.detalles.length > 0
+          ? bien.detalles.filter(det => det.estado.toLowerCase() === "disponible").length
+          : (bien.stock && bien.stock.cantidad !== undefined ? bien.stock.cantidad : (bien.stock || 0));
+
+      return {
+        ...bien,
+        precio: bien.precio,         // Se envía el campo precio
+        stock: stockCalculado,         // Stock calculado
+        fotos: fotosCombinadas,        // Propiedad "fotos" con todas las imágenes
+      };
+    });
+
+    console.log("📌 Bienes transformados antes de enviar:", JSON.stringify(bienesTransformados, null, 2));
+
+    return res.status(200).json(bienesTransformados);
   } catch (error) {
     console.error('❌ Error al obtener bienes del usuario:', error);
     return res.status(500).json({
@@ -454,6 +481,7 @@ const obtenerBienesPorUsuario = async (req, res) => {
     });
   }
 };
+
 
 
 

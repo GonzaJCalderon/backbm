@@ -2,8 +2,9 @@ const express = require('express');
 const router = express.Router();
 const transaccionesController = require('../controllers/transaccionesController');
 const { verifyToken, verificarPermisos } = require('../middlewares/authMiddleware');
-const { uploadFotosMiddleware } = require('../middlewares/uploadFotos');
-const { authMiddleware } = require('../middlewares/authMiddleware');
+const { uploadFotosMiddleware} = require('../middlewares/uploadFotos');
+const {  uploadFotosVentaMiddleware } = require('../middlewares/uploadFotosVenta');
+const { authMiddleware,  } = require('../middlewares/authMiddleware');
 
 
 // Registrar compra
@@ -11,7 +12,14 @@ const { authMiddleware } = require('../middlewares/authMiddleware');
 router.post('/comprar',authMiddleware, verifyToken, uploadFotosMiddleware, transaccionesController.registrarCompra);
 
 // Registrar venta
-router.post('/vender', verifyToken, transaccionesController.registrarVenta);
+
+router.post('/vender', authMiddleware, verifyToken, uploadFotosVentaMiddleware, transaccionesController.registrarVenta);
+
+
+
+
+
+
 
 // Obtener transacciones por bien
 router.get('/bien/:id', transaccionesController.obtenerTransaccionesPorBien);

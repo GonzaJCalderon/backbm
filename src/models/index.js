@@ -9,6 +9,7 @@ const TransaccionModel = require('./Transaccion');
 const DetallesBienModel = require('./DetallesBien');
 const HistorialCambiosModel = require('./HistorialCambios');
 const PasswordResetTokenModel = require('./PasswordResetToken');
+const MessageModel = require('./Message');
 
 // Inicializar modelos
 const Usuario = UsuarioModel(sequelize, DataTypes);
@@ -18,9 +19,15 @@ const Transaccion = TransaccionModel(sequelize, DataTypes);
 const DetallesBien = DetallesBienModel(sequelize, DataTypes);
 const HistorialCambios = HistorialCambiosModel(sequelize, DataTypes);
 const PasswordResetToken = PasswordResetTokenModel(sequelize, DataTypes);
+const Message = MessageModel(sequelize, DataTypes);
 
-// Configurar relaciones
-// Asociaciones entre Usuario y Transaccion
+// 📌 Configurar relaciones de mensajes
+Usuario.hasMany(Message, { as: 'mensajesEnviados', foreignKey: 'senderUuid' });
+Usuario.hasMany(Message, { as: 'mensajesRecibidos', foreignKey: 'recipientUuid' });
+Message.belongsTo(Usuario, { as: 'sender', foreignKey: 'senderUuid' });
+Message.belongsTo(Usuario, { as: 'recipient', foreignKey: 'recipientUuid' });
+
+// 📌 Asociaciones entre Usuario y Transaccion
 Usuario.hasMany(Transaccion, { as: 'ventas', foreignKey: 'vendedor_uuid' });
 Usuario.hasMany(Transaccion, { as: 'compras', foreignKey: 'comprador_uuid' });
 Transaccion.belongsTo(Usuario, { as: 'compradorTransaccion', foreignKey: 'comprador_uuid' });
@@ -29,58 +36,27 @@ Transaccion.belongsTo(Usuario, { as: 'vendedorTransaccion', foreignKey: 'vendedo
 Bien.hasMany(Transaccion, { as: 'transacciones', foreignKey: 'bien_uuid' });
 Transaccion.belongsTo(Bien, { as: 'bienTransaccion', foreignKey: 'bien_uuid' });
 
-// Asociaciones entre Bien y Stock
+// 📌 Asociaciones entre Bien y Stock
 Bien.hasOne(Stock, { foreignKey: 'bien_uuid', as: 'stock', onDelete: 'CASCADE', onUpdate: 'CASCADE' });
 Stock.belongsTo(Bien, { foreignKey: 'bien_uuid', as: 'bienStock' });
 
-// Asociaciones entre Bien y DetallesBien
-Bien.hasMany(DetallesBien, {
-  foreignKey: 'bien_uuid',
-  as: 'detalles',
-  onDelete: 'CASCADE',
-  onUpdate: 'CASCADE',
-});
-DetallesBien.belongsTo(Bien, {
-  foreignKey: 'bien_uuid',
-  as: 'detalleBien',
-  onDelete: 'CASCADE',
-  onUpdate: 'CASCADE',
-});
+// 📌 Asociaciones entre Bien y DetallesBien
+Bien.hasMany(DetallesBien, { foreignKey: 'bien_uuid', as: 'detalles', onDelete: 'CASCADE', onUpdate: 'CASCADE' });
+DetallesBien.belongsTo(Bien, { foreignKey: 'bien_uuid', as: 'detalleBien', onDelete: 'CASCADE', onUpdate: 'CASCADE' });
 
+// 📌 Relación entre Usuario y HistorialCambios
+Usuario.hasMany(HistorialCambios, { foreignKey: 'usuario_id', sourceKey: 'uuid', as: 'historial' });
+HistorialCambios.belongsTo(Usuario, { foreignKey: 'usuario_id', targetKey: 'uuid', as: 'usuario' });
 
-// Relación entre Usuario y HistorialCambios
-Usuario.hasMany(HistorialCambios, {
-  foreignKey: 'usuario_id', // Clave foránea en la tabla historial_cambios
-  sourceKey: 'uuid',        // Clave primaria en Usuario
-  as: 'historial',          // Alias para acceder al historial
-});
-
-HistorialCambios.belongsTo(Usuario, {
-  foreignKey: 'usuario_id', // Clave foránea en historial_cambios
-  targetKey: 'uuid',        // Clave primaria en Usuario
-  as: 'usuario',            // Alias para acceder al usuario desde el historial
-});
-
-// Un Usuario puede ser propietario de muchos Bienes
+// 📌 Relación entre Usuario y Bien
 Usuario.hasMany(Bien, { as: 'bienes', foreignKey: 'propietario_uuid' });
-
-// Un Bien pertenece a un Usuario como propietario
 Bien.belongsTo(Usuario, { as: 'propietario', foreignKey: 'propietario_uuid' });
 
-// Relación entre Usuario y PasswordResetToken
-Usuario.hasMany(PasswordResetToken, {
-  foreignKey: 'userId', // Clave foránea en la tabla de tokens
-  sourceKey: 'uuid',    // Clave primaria en Usuario
-  as: 'passwordTokens', // Alias para acceder a los tokens desde Usuario
-});
+// 📌 Relación entre Usuario y PasswordResetToken
+Usuario.hasMany(PasswordResetToken, { foreignKey: 'userId', sourceKey: 'uuid', as: 'passwordTokens' });
+PasswordResetToken.belongsTo(Usuario, { foreignKey: 'userId', targetKey: 'uuid', as: 'usuario' });
 
-PasswordResetToken.belongsTo(Usuario, {
-  foreignKey: 'userId', // Clave foránea en PasswordResetToken
-  targetKey: 'uuid',    // Clave primaria en Usuario
-  as: 'usuario',        // Alias para acceder al usuario desde PasswordResetToken
-});
-
-// Exportar modelos y conexión
+// 📌 Exportar modelos y conexión
 module.exports = {
   sequelize,
   Usuario,
@@ -90,4 +66,5 @@ module.exports = {
   DetallesBien,
   HistorialCambios,
   PasswordResetToken,
+  Message,
 };

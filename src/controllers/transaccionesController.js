@@ -204,163 +204,140 @@ const crearBienYStock = async ({ tipo, marca, modelo, cantidad, precio, vendedor
 
 
 
-// Registrar una venta
 const registrarVenta = async (req, res) => {
-  console.log('Datos recibidos en el backend:', req.body);
-
-  let transaction;
   try {
-    const { bienUuid, vendedorUuid, cantidad, metodoPago, imeis = [], compradorId, precio, monto } = req.body;
+    console.log("📌 Datos recibidos en el backend:", req.body);
+    console.log("📌 Fotos subidas en `req.uploadedPhotosVenta`:", req.uploadedPhotosVenta);
 
-    // Validar campos obligatorios
-    if (!bienUuid || !cantidad || !metodoPago || !compradorId || !vendedorUuid || !precio) {
-      console.error('Error: Datos faltantes en la solicitud.', {
-        bienUuid,
-        cantidad,
-        metodoPago,
-        compradorId,
-        vendedorUuid,
-        precio,
-      });
-      return res.status(400).json({
-        message: 'Faltan datos obligatorios para registrar la venta.',
-        detalles: { bienUuid, vendedorUuid, cantidad, metodoPago, compradorId, precio },
-      });
+    let { vendedorUuid, compradorId, ventaData } = req.body;
+
+    if (!vendedorUuid || !compradorId) {
+      return res.status(400).json({ message: "Faltan datos obligatorios: vendedorUuid o compradorId." });
     }
 
-    // Calcular monto final si no se proporciona
-    const montoFinal = monto ? parseFloat(monto) : parseFloat(precio) * parseInt(cantidad, 10);
-    console.log('Monto final calculado:', montoFinal);
-
-    // Iniciar transacción
-    transaction = await sequelize.transaction();
-
-    // Verificar si el bien pertenece al vendedor
-    const bien = await Bien.findOne({
-      where: { uuid: bienUuid, propietario_uuid: vendedorUuid },
-      include: [
-        {
-          model: Stock,
-          as: 'stock',
-          where: { usuario_uuid: vendedorUuid },
-        },
-      ],
-      transaction,
-    });
-
-    if (!bien || !bien.stock) {
-      console.error('Error: El bien no existe o no pertenece al vendedor.');
-      await transaction.rollback();
-      return res.status(404).json({ message: 'El bien no existe o no pertenece al vendedor.' });
+    // ✅ Convertir ventaData a array
+    let bienesArray;
+    try {
+      bienesArray = typeof ventaData === "string" ? JSON.parse(ventaData.trim()) : ventaData;
+      if (!Array.isArray(bienesArray)) throw new Error("El formato de ventaData es incorrecto.");
+    } catch (error) {
+      console.error("❌ Error al convertir ventaData:", error);
+      return res.status(400).json({ message: "Error al procesar ventaData. Asegúrate de enviar un JSON válido." });
     }
 
-    // Verificar si hay stock suficiente
-    if (bien.stock.cantidad < cantidad) {
-      console.error(`Error: Stock insuficiente. Stock disponible: ${bien.stock.cantidad}`);
-      await transaction.rollback();
-      return res.status(400).json({
-        message: `Stock insuficiente. Stock disponible: ${bien.stock.cantidad}.`,
-      });
+    if (bienesArray.length === 0) {
+      return res.status(400).json({ message: "No se recibieron bienes válidos para la venta." });
     }
 
-    // Procesar IMEIs si se proporcionan
-    if (imeis.length > 0) {
-      const detalles = await DetallesBien.findAll({
-        where: {
-          bien_uuid: bienUuid,
-          identificador_unico: { [Op.in]: imeis },
-          estado: 'disponible',
-        },
-        transaction,
-      });
+    const transaction = await sequelize.transaction();
 
-      console.log('Detalles encontrados para los IMEIs:', detalles.map((d) => d.identificador_unico));
+    try {
+      let transaccionesGuardadas = [];
 
-      if (detalles.length !== imeis.length) {
-        const identificadoresFaltantes = imeis.filter(
-          (id) => !detalles.some((d) => d.identificador_unico === id),
-        );
-        console.error('Error: Algunos IMEIs no existen o ya fueron vendidos.', identificadoresFaltantes);
-        await transaction.rollback();
-        return res.status(400).json({
-          message: 'Algunos identificadores no existen o ya fueron vendidos.',
-          identificadoresFaltantes,
-        });
+      for (let i = 0; i < bienesArray.length; i++) {
+        const { uuid, tipo, marca, modelo, descripcion, precio, cantidad, metodoPago, imeis } = bienesArray[i];
+
+        // Extraer imágenes de req.uploadedPhotosVenta
+        const photosData = req.uploadedPhotosVenta[i] || {};
+        const fotosSubidas = Array.isArray(photosData.fotos) ? photosData.fotos : [];
+        const imeiFotos = photosData.imeis || {};
+
+        console.log(`📌 Procesando bien ${i}:`, { uuid, tipo, marca, modelo, descripcion, precio, cantidad, metodoPago, fotosSubidas, imeis, imeiFotos });
+
+        let bien;
+        if (uuid) {
+          // Bien registrado: recuperar el registro existente para obtener, por ejemplo, la foto
+          bien = await Bien.findOne({ where: { uuid }, transaction });
+          if (!bien) {
+            throw new Error(`No se encontró el bien registrado con uuid ${uuid}`);
+          }
+          // Para bienes registrados, usaremos las fotos que ya están en la base de datos.
+          // Si por alguna razón necesitas combinar o actualizar fotos, puedes hacerlo aquí.
+        } else {
+          // Bien nuevo: se crea un registro
+          bien = await Bien.create({
+            uuid: uuidv4(),
+            tipo,
+            marca,
+            modelo,
+            descripcion: descripcion || "Sin descripción",
+            precio: parseFloat(precio) || 0,
+            // En bienes nuevos usamos las fotos subidas desde el front (puede ser un arreglo vacío si no se enviaron)
+            fotos: fotosSubidas,
+            propietario_uuid: vendedorUuid,
+          }, { transaction });
+        }
+
+        // Registrar la transacción utilizando el bien (ya sea existente o nuevo)
+        const nuevaTransaccion = await Transaccion.create({
+          uuid: uuidv4(),
+          cantidad,
+          metodoPago: metodoPago || "efectivo",
+          comprador_uuid: compradorId,
+          vendedor_uuid: vendedorUuid,
+          bien_uuid: bien.uuid,
+          precio: parseFloat(precio) || 0,
+          // Para el campo imeis, si es un teléfono móvil y se enviaron IMEIs,
+          // se guarda la información en formato JSON (o el que se requiera).
+          imeis: imeis ? JSON.stringify(imeis) : null,
+          // Para las fotos de la transacción:
+          // - Si el bien es nuevo, se usan las fotos subidas.
+          // - Si el bien es registrado, podrías optar por usar bien.fotos (ya almacenadas) o alguna lógica adicional.
+          fotos: uuid ? bien.fotos : fotosSubidas,
+        }, { transaction });
+
+        // Si es un teléfono móvil, procesar los IMEIs
+        if (tipo === "teléfono movil" && imeis) {
+          for (let j = 0; j < imeis.length; j++) {
+            const imei = imeis[j];
+
+            let detalleImei = await DetallesBien.findOne({
+              where: { identificador_unico: imei },
+              transaction,
+            });
+
+            if (!detalleImei) {
+              detalleImei = await DetallesBien.create({
+                uuid: uuidv4(),
+                bien_uuid: bien.uuid,
+                identificador_unico: imei,
+                foto: imeiFotos[j]?.foto || null,
+                estado: "vendido",  // IMEI se guarda como vendido
+              }, { transaction });
+
+              console.log(`✅ IMEI ${imei} registrado y marcado como "vendido"`);
+            }
+          }
+        }
+
+        transaccionesGuardadas.push(nuevaTransaccion);
       }
 
-      // Actualizar estado de los IMEIs vendidos
-      await DetallesBien.update(
-        { estado: 'vendido' },
-        {
-          where: { bien_uuid: bienUuid, identificador_unico: { [Op.in]: imeis } },
-          transaction,
-        }
-      );
-      console.log('IMEIs marcados como vendidos:', imeis);
-    } else {
-      // Asignar automáticamente identificadores si no son teléfonos móviles
-      const detallesDisponibles = await DetallesBien.findAll({
-        where: { bien_uuid: bienUuid, estado: 'disponible' },
-        limit: cantidad,
-        transaction,
+      await transaction.commit();
+
+      return res.status(201).json({
+        message: "Venta registrada correctamente.",
+        transacciones: transaccionesGuardadas
       });
 
-      if (detallesDisponibles.length < cantidad) {
-        console.error('Error: No hay suficientes identificadores disponibles para el bien.');
-        await transaction.rollback();
-        return res.status(400).json({
-          message: 'No hay suficientes identificadores disponibles para completar la venta.',
-        });
-      }
-
-      imeis.push(...detallesDisponibles.map((detalle) => detalle.identificador_unico));
-      await DetallesBien.update(
-        { estado: 'vendido' },
-        {
-          where: { identificador_unico: { [Op.in]: imeis } },
-          transaction,
-        }
-      );
-      console.log('Identificadores asignados automáticamente y marcados como vendidos:', imeis);
+    } catch (error) {
+      await transaction.rollback();
+      console.error("❌ Error al registrar venta:", error);
+      return res.status(500).json({ message: "Error interno al registrar la venta." });
     }
-
-    // Actualizar stock del vendedor
-    bien.stock.cantidad -= cantidad;
-    await bien.stock.save({ transaction });
-
-    // Registrar la venta en Transaccion
-    const transaccion = await Transaccion.create(
-      {
-        bien_uuid: bienUuid,
-        vendedor_uuid: vendedorUuid,
-        comprador_uuid: compradorId,
-        cantidad,
-        metodoPago,
-        fecha: new Date(),
-        precio: parseFloat(precio),
-        monto: montoFinal,
-        imeis, // Almacena los IMEIs vendidos
-      },
-      { transaction },
-    );
-
-    console.log('Transacción creada con éxito:', transaccion);
-
-    // Confirmar transacción
-    await transaction.commit();
-    return res.status(201).json({
-      message: 'Venta registrada con éxito.',
-      transaccion,
-    });
   } catch (error) {
-    if (transaction) await transaction.rollback();
-    console.error('Error en registrarVenta:', error.message, error.stack);
-    return res.status(500).json({
-      message: 'Error interno al registrar la venta.',
-      detalles: error.message,
-    });
+    console.error("❌ Error general en la venta:", error);
+    return res.status(500).json({ message: "Error interno del servidor." });
   }
 };
+
+
+
+
+
+
+
+
 
 
 const registrarTransaccion = async (req, res) => {

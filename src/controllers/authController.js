@@ -1,7 +1,7 @@
-const Usuario = require('../models/Usuario'); // Importa tu modelo de usuario
-const bcrypt = require('bcryptjs'); // Importa bcrypt para la verificación de contraseñas
-const jwt = require('jsonwebtoken'); // Importa jwt para la generación de tokens
-const { validarCamposRequeridos } = require('../utils/validationUtils'); // Importa la función de validación
+const Usuario = require('../models/Usuario'); // Modelo de usuario
+const bcrypt = require('bcryptjs'); // Para comparar contraseñas
+const jwt = require('jsonwebtoken'); // Para generar tokens
+const { validarCamposRequeridos } = require('../utils/validationUtils'); // Validación
 
 const SECRET_KEY = process.env.SECRET_KEY || 'bienes_muebles'; // Clave secreta para JWT
 
@@ -17,7 +17,7 @@ const loginUsuario = async (req, res) => {
     console.log('Datos recibidos en el backend:', { email, password });
 
     try {
-        // Buscar el usuario por email
+        // Buscar usuario por email
         const user = await Usuario.findOne({ where: { email } });
 
         if (!user) {
@@ -32,24 +32,24 @@ const loginUsuario = async (req, res) => {
 
         // Construir respuesta del usuario
         const responseUser = {
-            uuid: user.uuid, // Cambiado de `id` a `uuid` para consistencia
+            uuid: user.uuid, // ✅ Asegurar uso de uuid
             email: user.email,
             nombre: user.nombre,
             apellido: user.apellido,
             direccion: user.direccion,
             rolDefinitivo: user.rolDefinitivo,
-            dni: user.dni, // Asegúrate de que este valor esté disponible en el modelo y la base de datos
+            dni: user.dni,
         };
-        
-        // Generar token con rolDefinitivo
+
+        // ✅ Generar token con uuid y rol
         const token = jwt.sign(
             { 
-                id: user.id, 
+                uuid: user.uuid,  // ✅ Usar uuid en lugar de id
                 email: user.email, 
-                rolDefinitivo: user.rolDefinitivo // Incluye el rol en el token
+                rol: user.rolDefinitivo // ✅ Incluir rol en el token
             }, 
             SECRET_KEY, 
-            { expiresIn: '4h' } // Expiración del token
+            { expiresIn: '4h' } // Token expira en 4 horas
         );
 
         console.log('Respuesta final del backend:', { usuario: responseUser, token });
