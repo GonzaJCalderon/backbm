@@ -36,7 +36,7 @@ router.post('/refresh', (req, res) => {
     const newAccessToken = jwt.sign(
       { uuid: decoded.uuid },
       process.env.SECRET_KEY || 'bienes_muebles',
-      { expiresIn: '1h' }
+      { expiresIn: '4h' }
     );
 
     res.status(200).json({ accessToken: newAccessToken });

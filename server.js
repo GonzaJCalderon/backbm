@@ -2,7 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const cookieParser = require('cookie-parser');
 const path = require('path');
-const { sequelize, Usuario, Bien, Stock, Transaccion, DetallesBien, HistorialCambios, PasswordResetToken } = require('./src/models'); // Importar modelos configurados
+const { sequelize, Usuario, Bien, Stock, Transaccion, DetallesBien, HistorialCambios, PasswordResetToken, Message } = require('./src/models'); // Importar modelos configurados
 require('dotenv').config();
 
 const app = express();
@@ -63,6 +63,9 @@ try {
   console.log('Cargando rutas de renaper...');
   app.use('/renaper', require('./src/routes/renaper'));
 
+  console.log('Cargando rutas de mensajes...');
+  app.use('/messages', require('./src/routes/messages'));
+
 
 } catch (error) {
   console.error('Error al cargar rutas:', error.message);
@@ -96,6 +99,9 @@ try {
 
     await PasswordResetToken.sync({ alter: true });
     console.log('Modelo PasswordResetToken sincronizado.');
+
+    await Message.sync({ alter: true });
+    console.log('Modelo Message sincronizado.');
 
     // Inicia el servidor
     app.listen(PORT, '0.0.0.0', () => {

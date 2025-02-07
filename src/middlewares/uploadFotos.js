@@ -1,4 +1,3 @@
-
 const multer = require('multer');
 const path = require('path');
 const cloudinary = require('cloudinary').v2;
@@ -13,7 +12,7 @@ cloudinary.config({
 // Configuración de almacenamiento en memoria para Multer
 const storageFotos = multer.memoryStorage();
 
-// Configuración de Multer
+// Middleware Multer para manejar múltiples imágenes con nombres dinámicos
 const uploadFotos = multer({
   storage: storageFotos,
   limits: { fileSize: 5 * 1024 * 1024 }, // Limitar a 5MB por archivo
@@ -25,41 +24,70 @@ const uploadFotos = multer({
     if (extname && mimetype) {
       cb(null, true);
     } else {
-      console.error('Archivo rechazado por tipo o extensión no permitida:', file.originalname);
+      console.error('Archivo rechazado:', file.originalname);
       cb(new Error('Error: Solo se permiten imágenes JPG, JPEG y PNG'));
     }
   },
-}).array('fotos', 10); // Soporte para 10 fotos máximo
+}).any(); // Permitir cualquier campo de archivo
 
 // Middleware para manejar la carga de fotos y subirlas a Cloudinary
 const uploadFotosMiddleware = async (req, res, next) => {
   console.log('Inicio del middleware de subida de fotos');
+
   uploadFotos(req, res, async (err) => {
     if (err) {
       console.error('Error al cargar fotos:', err);
       return res.status(400).json({ error: err.message });
     }
-    
-    console.log('Archivos recibidos en req.files:', req.files); // Log para depurar archivos recibidos
+
+    console.log('Archivos recibidos en req.files:', req.files);
+
     if (!req.files || req.files.length === 0) {
-      console.error('No se recibieron fotos en la solicitud.');
-      return res.status(400).json({ error: 'No se encontraron fotos para cargar.' });
+      console.warn('No se recibieron fotos.');
+      req.uploadedPhotos = [];
+      return next(); // Continúa sin fotos
     }
 
     try {
-      const uploadedPhotos = [];
-      for (const file of req.files) {
-        console.log('Subiendo archivo a Cloudinary:', file.originalname); // Log por archivo
-        const fotoUrl = await uploadFileToCloudinary(file.buffer); // Sube el buffer directamente a Cloudinary
-        console.log('URL de la foto subida:', fotoUrl); // Log de la URL devuelta por Cloudinary
-        uploadedPhotos.push(fotoUrl);
+      const uploadedPhotos = {};
+      // Procesar cada archivo recibido
+for (const file of req.files) {
+  console.log('Subiendo archivo a Cloudinary:', file.originalname);
+  const fotoUrl = await uploadFileToCloudinary(file.buffer);
+  console.log('Foto subida con éxito:', fotoUrl);
+
+  // Extraer el índice y el tipo de campo (ya sea "fotos" o "imeiFoto")
+  const fieldName = file.fieldname; // Ejemplo: "bienes[0][fotos]" o "bienes[0][imeiFoto]"
+  const match = fieldName.match(/bienes\[(\d+)\]\[(fotos|imeiFoto)\]/);
+
+  if (match) {
+    const bienIndex = match[1]; // El índice del bien
+    const field = match[2];     // Puede ser "fotos" o "imeiFoto"
+    
+    if (!uploadedPhotos[bienIndex]) {
+      uploadedPhotos[bienIndex] = {};
+    }
+    
+    if (field === 'fotos') {
+      // Si el campo es "fotos", guardarlo como array
+      if (!uploadedPhotos[bienIndex][field]) {
+        uploadedPhotos[bienIndex][field] = [];
       }
-      req.uploadedPhotos = uploadedPhotos; // Añade las fotos subidas al objeto de la solicitud
-      console.log('Fotos cargadas correctamente:', uploadedPhotos);
-      next();
+      uploadedPhotos[bienIndex][field].push(fotoUrl);
+    } else if (field === 'imeiFoto') {
+      // Para "imeiFoto", guardamos un único valor (la URL)
+      uploadedPhotos[bienIndex][field] = fotoUrl;
+    }
+  }
+}
+
+req.uploadedPhotos = uploadedPhotos; // Guardar en req para su uso en el controlador
+console.log('Fotos subidas correctamente:', uploadedPhotos);
+next();
+
     } catch (uploadError) {
       console.error('Error al subir fotos a Cloudinary:', uploadError);
-      res.status(500).json({ error: 'Error al subir fotos a Cloudinary.' });
+      return res.status(500).json({ error: 'Error al subir fotos a Cloudinary.' });
     }
   });
 };
@@ -72,10 +100,9 @@ const uploadFileToCloudinary = async (fileBuffer) => {
       { resource_type: 'image' },
       (error, result) => {
         if (error) {
-          console.error('Error al subir archivo a Cloudinary:', error);
+          console.error('Error en Cloudinary:', error);
           return reject(error);
         }
-        console.log('Resultado de la subida a Cloudinary:', result);
         resolve(result.secure_url);
       }
     );
@@ -83,10 +110,5 @@ const uploadFileToCloudinary = async (fileBuffer) => {
   });
 };
 
-
-
-
-
-
-
 module.exports = { uploadFotosMiddleware, uploadFileToCloudinary, uploadFotos };
+

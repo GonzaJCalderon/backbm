@@ -1,7 +1,6 @@
 require('dotenv').config();
 const jwt = require('jsonwebtoken');
 
-// Obtén la clave secreta desde las variables de entorno
 const SECRET_KEY = process.env.SECRET_KEY || 'bienes_muebles'; // Clave secreta para JWT
 
 // Middleware para verificar el token
@@ -15,9 +14,18 @@ const verifyToken = (req, res, next) => {
     }
 
     const decoded = jwt.verify(token, SECRET_KEY);
-    console.log('Token decodificado completo:', decoded); // Verifica aquí que el campo rol exista
+    
+    if (!decoded.uuid) {
+      return res.status(400).json({ message: 'El token no contiene un UUID válido.' });
+    }
 
-    req.user = decoded; // Guarda el token completo en req.user
+    console.log('Token decodificado completo:', decoded); // Debugging
+
+    req.user = {
+      uuid: decoded.uuid,  // Asegurar que uuid está presente
+      rol: decoded.rol || 'usuario' // Si el rol no está definido, asumir 'usuario'
+    };
+
     next();
   } catch (error) {
     console.error('Error al verificar token:', error.message);
@@ -32,23 +40,22 @@ const verifyToken = (req, res, next) => {
 // Middleware para verificar permisos de rol
 const verificarPermisos = (rolesPermitidos) => {
   return (req, res, next) => {
-    const { rol } = req.user || {}; // Cambiar rolDefinitivo a rol
-    console.log(`Token decodificado:`, req.user);
-    console.log(`Rol detectado: ${rol}`);
-    console.log(`Roles permitidos: ${rolesPermitidos}`);
-
-    if (!rol) {
+    if (!req.user || !req.user.rol) {
       return res.status(403).json({ message: 'No se pudo determinar el rol del usuario.' });
     }
 
-    if (!rolesPermitidos.includes(rol)) {
-      console.error(`Acceso denegado. Rol ${rol} no está permitido.`);
+    console.log(`Token decodificado:`, req.user);
+    console.log(`Rol detectado: ${req.user.rol}`);
+    console.log(`Roles permitidos: ${rolesPermitidos}`);
+
+    if (!rolesPermitidos.includes(req.user.rol)) {
+      console.error(`Acceso denegado. Rol ${req.user.rol} no está permitido.`);
       return res.status(403).json({
         message: `No tienes permisos para realizar esta acción. Roles permitidos: ${rolesPermitidos.join(', ')}`,
       });
     }
 
-    console.log(`Acceso permitido para el rol: ${rol}`);
+    console.log(`Acceso permitido para el rol: ${req.user.rol}`);
     next();
   };
 };

@@ -3,7 +3,9 @@ const Bien = require('../models/Bien');
 const Usuario = require('../models/Usuario');
 
 const searchAll = async (req, res) => {
-    const { query, tipo, marca, modelo, nombre, apellido, email, dni, cuit, direccion, page = 1, limit = 10 } = req.query;
+    const { query, tipo, marca, modelo, nombre, apellido, email, dni, cuit, direccion, page = 1, limit = 10, userId, role } = req.query;
+
+
 
     try {
         if (!query && !tipo && !marca && !modelo && !nombre && !apellido && !email && !dni && !cuit && !direccion) {

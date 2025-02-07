@@ -335,6 +335,10 @@ const registerUsuarioPorTercero = async (req, res) => {
     });
   }
 }
+
+
+
+
 const updateAccount = async (req, res) => {
   const { token } = req.params; // Extrae el token de los parámetros de la URL
 

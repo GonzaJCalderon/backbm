@@ -18,7 +18,7 @@ const loginUsuario = async (req, res) => {
     console.log('Datos recibidos en el backend:', { email, password });
 
     try {
-        // Buscar el usuario por email
+        // Buscar usuario por email
         const user = await Usuario.findOne({ where: { email } });
 
         if (!user) {
@@ -33,14 +33,15 @@ const loginUsuario = async (req, res) => {
 
         // Construir respuesta del usuario
         const responseUser = {
-            uuid: user.uuid, // Cambiado de `id` a `uuid` para consistencia
+            uuid: user.uuid, // ✅ Asegurar uso de uuid
             email: user.email,
             nombre: user.nombre,
             apellido: user.apellido,
             direccion: user.direccion,
             rolDefinitivo: user.rolDefinitivo,
-            dni: user.dni, // Asegúrate de que este valor esté disponible en el modelo y la base de datos
+            dni: user.dni,
         };
+
 
         // Generar token con rolDefinitivo
         const token = jwt.sign(
@@ -51,6 +52,7 @@ const loginUsuario = async (req, res) => {
             },
             config.secret,
             { expiresIn: config.jwtExpiration } // Expiración del token
+
         );
 
         console.log('Respuesta final del backend:', { usuario: responseUser, token });
