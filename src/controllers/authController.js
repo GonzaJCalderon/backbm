@@ -2,8 +2,9 @@ const Usuario = require('../models/Usuario'); // Importa tu modelo de usuario
 const bcrypt = require('bcryptjs'); // Importa bcrypt para la verificación de contraseñas
 const jwt = require('jsonwebtoken'); // Importa jwt para la generación de tokens
 const { validarCamposRequeridos } = require('../utils/validationUtils'); // Importa la función de validación
+const config = require('../config/auth.config');
 
-const SECRET_KEY = process.env.SECRET_KEY || 'bienes_muebles'; // Clave secreta para JWT
+
 
 const loginUsuario = async (req, res) => {
     const { email, password } = req.body;
@@ -40,16 +41,16 @@ const loginUsuario = async (req, res) => {
             rolDefinitivo: user.rolDefinitivo,
             dni: user.dni, // Asegúrate de que este valor esté disponible en el modelo y la base de datos
         };
-        
+
         // Generar token con rolDefinitivo
         const token = jwt.sign(
-            { 
-                id: user.id, 
-                email: user.email, 
+            {
+                id: user.id,
+                email: user.email,
                 rolDefinitivo: user.rolDefinitivo // Incluye el rol en el token
-            }, 
-            SECRET_KEY, 
-            { expiresIn: '1h' } // Expiración del token
+            },
+            config.secret,
+            { expiresIn: config.jwtExpiration } // Expiración del token
         );
 
         console.log('Respuesta final del backend:', { usuario: responseUser, token });
