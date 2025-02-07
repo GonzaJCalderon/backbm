@@ -1,8 +1,8 @@
 {
   "development": {
-    "username": "postgres",
-    "password": "post",
-    "database": "bienes_muebles_dev",
+    "username": "cchiera",
+    "password": "Chiera+3",
+    "database": "bienes_muebles",
     "host": "localhost",
     "dialect": "postgres"
   },

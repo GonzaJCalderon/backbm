@@ -2,11 +2,12 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 require('dotenv').config();
 
-const {Usuario, Bien, Stock, Transaccion, HistorialCambios, DetallesBien, PasswordResetToken} = require('../models'); // Importa los modelos correctamente
+const { Usuario, Bien, Stock, Transaccion, HistorialCambios, DetallesBien, PasswordResetToken } = require('../models'); // Importa los modelos correctamente
 const { Op } = require('sequelize');
 const { validarCampos } = require('../utils/validationUtils');
 const { enviarCorreo } = require('../services/emailService');
 const moment = require('moment');
+const config = require('../config/auth.config');
 
 
 
@@ -61,17 +62,17 @@ const crearUsuario = async (req, res) => {
     const hashedPassword = await bcrypt.hash(password, 10);
 
     // Crear el nuevo usuario
-  // Crear el nuevo usuario
-const nuevoUsuario = await Usuario.create({
-  nombre,
-  apellido,
-  email,
-  password: hashedPassword,
-  tipo,
-  dni,
-  direccion, // Enviar el objeto directamente
-  estado: 'pendiente', // Estado inicial
-});
+    // Crear el nuevo usuario
+    const nuevoUsuario = await Usuario.create({
+      nombre,
+      apellido,
+      email,
+      password: hashedPassword,
+      tipo,
+      dni,
+      direccion, // Enviar el objeto directamente
+      estado: 'pendiente', // Estado inicial
+    });
 
 
     // Ruta absoluta al logo
@@ -173,15 +174,15 @@ const login = async (req, res) => {
     // Generar token principal (JWT)
     const token = jwt.sign(
       { uuid: usuario.uuid, email: usuario.email, rol: usuario.rolDefinitivo },
-      secretKey,
-      { expiresIn: '4h' }
+      config.secret,
+      { expiresIn: config.jwtExpiration }
     );
 
     // Generar refresh token
     const refreshToken = jwt.sign(
       { uuid: usuario.uuid },
-      refreshSecret,
-      { expiresIn: '7h' }
+      config.secret,
+      { expiresIn: config.jwtRefreshExpiration }
     );
 
     // Construir objeto de dirección
@@ -230,13 +231,13 @@ const obtenerUsuarios = async (req, res) => {
 
 const obtenerCompradores = async (req, res) => {
   try {
-      const compradores = await Usuario.findAll({
-          where: { tipo: 'comprador' }, // Ajusta esta condición según tus necesidades
-      });
-      res.status(200).json(compradores);
+    const compradores = await Usuario.findAll({
+      where: { tipo: 'comprador' }, // Ajusta esta condición según tus necesidades
+    });
+    res.status(200).json(compradores);
   } catch (error) {
-      console.error('Error al obtener compradores:', error);
-      res.status(500).json({ message: 'Error al obtener compradores.', error: error.message });
+    console.error('Error al obtener compradores:', error);
+    res.status(500).json({ message: 'Error al obtener compradores.', error: error.message });
   }
 };
 
@@ -289,10 +290,10 @@ const registerUsuarioPorTercero = async (req, res) => {
       process.env.JWT_SECRET,
       { expiresIn: '1d' }
     );
-    
+
     console.log('Token generado:', token);
     console.log('Payload utilizado:', { userUuid: nuevoUsuario.uuid });
-    
+
 
     const enlace = `${process.env.FRONTEND_URL}/usuarios/update-account/${token}`;
 
@@ -347,7 +348,7 @@ const updateAccount = async (req, res) => {
     console.log('Token decodificado:', decoded);
 
     // Extraer la propiedad userUuid del token
-    const { userUuid } = decoded; 
+    const { userUuid } = decoded;
     if (!userUuid) {
       return res.status(400).json({ mensaje: 'Token inválido: no contiene UUID.' });
     }
@@ -508,14 +509,14 @@ El equipo de Bienes Muebles`;
       usuario.fechaRechazo = fechaRechazo || new Date().toISOString();
       usuario.rechazadoPor = rechazadoPor;
       usuario.motivoRechazo = motivoRechazo;
-    
+
       if (usuario.email) {
         console.log(`Enviando correo de rechazo a: ${usuario.email}`);
         const subject = 'Su cuenta ha sido rechazada';
-    
+
         // Generar enlace para reenviar el registro
         const reintentarRegistroLink = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/usuarios/${usuario.uuid}/reintentar`;
-    
+
         const text = `Hola ${usuario.nombre},
     
     Lamentamos informarle que su cuenta ha sido rechazada.
@@ -526,7 +527,7 @@ El equipo de Bienes Muebles`;
     
     Atentamente,
     El equipo de Bienes Muebles`;
-    
+
         const html = `
           <p>Hola ${usuario.nombre},</p>
           <p>Lamentamos informarle que su cuenta ha sido rechazada.</p>
@@ -535,7 +536,7 @@ El equipo de Bienes Muebles`;
           <a href="${reintentarRegistroLink}" style="color: blue; font-weight: bold;">Reenviar Registro</a>
           <p>Atentamente,<br>El equipo de Bienes Muebles</p>
         `;
-    
+
         try {
           await enviarCorreo(usuario.email, subject, text, html);
           console.log(`Correo de rechazo enviado a: ${usuario.email}`);
@@ -544,7 +545,7 @@ El equipo de Bienes Muebles`;
         }
       }
     }
-    
+
 
     // Guardar cambios en la base de datos
     console.log('Guardando cambios en la base de datos...');
@@ -852,16 +853,16 @@ const obtenerUsuarioPorId = async (req, res) => {
 
 const obtenerUsuariosPendientes = async (req, res) => {
   try {
-      const usuariosPendientes = await Usuario.findAll({
-          where: {
-              estado: ['pendiente', 'pendiente_revision'], // Incluye ambos estados
-          },
-      });
+    const usuariosPendientes = await Usuario.findAll({
+      where: {
+        estado: ['pendiente', 'pendiente_revision'], // Incluye ambos estados
+      },
+    });
 
-      res.status(200).json(usuariosPendientes);
+    res.status(200).json(usuariosPendientes);
   } catch (error) {
-      console.error('Error al obtener usuarios pendientes:', error);
-      res.status(500).json({ message: 'Error al obtener usuarios pendientes.' });
+    console.error('Error al obtener usuarios pendientes:', error);
+    res.status(500).json({ message: 'Error al obtener usuarios pendientes.' });
   }
 };
 
@@ -1072,7 +1073,7 @@ module.exports = {
   checkExistingUser, // Verificar si un usuario existe
   resetPassword,
   updateAccount,
-  reintentarRegistro, 
+  reintentarRegistro,
 
 };
 

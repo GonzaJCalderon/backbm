@@ -58,3 +58,4 @@ const uploadFotosBienMiddleware = (req, res, next) => {
 };
 
 module.exports = { uploadFotosBienMiddleware, subirArchivoACloudinary };
+
