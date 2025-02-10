@@ -1,5 +1,7 @@
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const fs = require('fs');
+const path = require('path');
 require('dotenv').config();
 
 const {Usuario, Bien, Stock, Transaccion, HistorialCambios, DetallesBien, PasswordResetToken} = require('../models'); // Importa los modelos correctamente
@@ -18,37 +20,20 @@ const { v4: uuidv4 } = require('uuid');
 
 
 // Crear un nuevo usuario
-// Crear un nuevo usuario
-const path = require('path');
+
 
 const crearUsuario = async (req, res) => {
   try {
     const { nombre, apellido, email, password, tipo, dni, direccion } = req.body;
 
-    // Validar campos obligatorios
     if (!nombre || !apellido || !email || !password || !tipo || !dni || !direccion) {
       return res.status(400).json({
-        message: 'Todos los campos obligatorios deben ser proporcionados (nombre, apellido, email, password, tipo, dni, dirección).',
+        message: 'Todos los campos obligatorios deben ser proporcionados.',
       });
     }
 
-    // Validar dirección
-    if (
-      typeof direccion !== 'object' ||
-      !direccion.calle ||
-      !direccion.altura ||
-      !direccion.departamento
-    ) {
-      return res.status(400).json({
-        message: 'La dirección debe incluir calle, altura y departamento.',
-      });
-    }
-
-    // Verificar si el usuario ya existe (por email o DNI)
     const usuarioExistente = await Usuario.findOne({
-      where: {
-        [Op.or]: [{ email }, { dni }],
-      },
+      where: { [Op.or]: [{ email }, { dni }] },
     });
 
     if (usuarioExistente) {
@@ -60,59 +45,60 @@ const crearUsuario = async (req, res) => {
     // Hashear la contraseña
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // Crear el nuevo usuario
-  // Crear el nuevo usuario
-const nuevoUsuario = await Usuario.create({
-  nombre,
-  apellido,
-  email,
-  password: hashedPassword,
-  tipo,
-  dni,
-  direccion, // Enviar el objeto directamente
-  estado: 'pendiente', // Estado inicial
-});
+    // Crear usuario en la BD
+    const nuevoUsuario = await Usuario.create({
+      nombre,
+      apellido,
+      email,
+      password: hashedPassword,
+      tipo,
+      dni,
+      direccion,
+      estado: 'pendiente',
+    });
 
+    // 🔹 Ruta absoluta al logo
+    const logoPath = path.resolve(__dirname, '..', 'assets', 'logo-png-sin-fondo.png');
 
-    // Ruta absoluta al logo
-    const logoPath = path.resolve(__dirname, '..', 'assets', 'logoprueba.png');
+    // 🔹 Convertir imagen a Base64
+    const logoBase64 = fs.readFileSync(logoPath, { encoding: 'base64' });
+    const logoSrc = `data:image/png;base64,${logoBase64}`;
 
-    // Diseño HTML actualizado
+    // 🔹 Diseño HTML actualizado con Base64
     const htmlContent = `
       <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
         <table style="width: 100%; max-width: 600px; margin: auto; border: 1px solid #ddd; border-radius: 8px; box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1); overflow: hidden;">
           <thead>
             <tr>
-              <th style="background-color: #4CAF50; color: #fff; padding: 16px; text-align: center;">
-                <h1 style="margin: 0;">¡Bienvenido a Registro de Bienes!</h1>
+              <th style="background: linear-gradient(to right, #1e3a8a, #3b82f6); color: #fff; padding: 16px; text-align: center;">
+                <div style="display: flex; align-items: center; justify-content: center; gap: 10px;">
+                  <img src="${logoSrc}" alt="Logo Registro de Bienes" style="max-width: 80px; height: auto;" />
+                  <h1 style="margin: 0; font-size: 20px;">¡Bienvenido al Sistema Provincial Preventivo de Registro de Bienes Muebles Usados!</h1>
+                </div>
               </th>
             </tr>
           </thead>
           <tbody>
             <tr>
               <td style="padding: 16px; text-align: center;">
-                <img 
-                  src="cid:logo" 
-                  alt="Logo Registro de Bienes" 
-                  style="max-width: 150px; margin-bottom: 16px;" />
                 <p>Hola <strong>${nombre}</strong>,</p>
                 <p>
-                  ¡Estamos encantados de que te unas a nuestra plataforma! Tu solicitud de registro está 
+                 Tu solicitud de registro está 
                   <strong>pendiente de revisión</strong>. Pronto te informaremos sobre el estado de tu cuenta.
                 </p>
                 <p>
                   Mientras tanto, si tienes alguna duda o consulta, no dudes en contactarnos. Estamos aquí para ayudarte.
                 </p>
                 <p style="color: #888; font-size: 0.9em; margin-top: 20px;">
-                  Atentamente,<br>El equipo de Registro de Bienes.
+                  Atentamente,<br>El equipo del Sistema Provincial Preventivo de Registro de Bienes Muebles Usados.
                 </p>
               </td>
             </tr>
           </tbody>
           <tfoot>
             <tr>
-              <td style="background-color: #f4f4f4; color: #666; font-size: 0.8em; text-align: center;">
-                © 2025 Registro de Bienes, Todos los derechos reservados.
+              <td style="background-color: #f4f4f4; color: #666; font-size: 0.8em; text-align: center; padding: 10px;">
+               
               </td>
             </tr>
           </tfoot>
@@ -120,31 +106,17 @@ const nuevoUsuario = await Usuario.create({
       </div>
     `;
 
-    // Enviar correo con el diseño y la imagen
-    await enviarCorreo(
-      email,
-      'Solicitud Pendiente en Registro de Bienes',
-      `Hola ${nombre}, tu solicitud está pendiente de revisión.`,
-      htmlContent,
-      [
-        {
-          filename: 'logoprueba.png',
-          path: logoPath,
-          cid: 'logo', // ID de contenido para referenciar en el HTML
-        },
-      ]
-    );
+    // 🔹 Enviar correo con HTML que incluye la imagen Base64
+    await enviarCorreo(email, 'Solicitud Pendiente en el Sistema Provincial Preventivo de Registro de Bienes Muebles Usados', `Hola ${nombre}, tu solicitud está pendiente de revisión.`, htmlContent);
 
     res.status(201).json({
       message: 'Usuario creado y correo enviado exitosamente.',
       usuario: nuevoUsuario,
     });
+
   } catch (error) {
     console.error('Error al crear usuario o enviar correo:', error);
-    res.status(500).json({
-      message: 'Error interno del servidor.',
-      detalles: error.message,
-    });
+    res.status(500).json({ message: 'Error interno del servidor.', detalles: error.message });
   }
 };
 
@@ -271,7 +243,7 @@ const registerUsuarioPorTercero = async (req, res) => {
     const userUuid = uuidv4();
 
     const nuevoUsuario = await Usuario.create({
-      uuid: userUuid, // Establecer manualmente el UUID
+      uuid: userUuid,
       dni,
       email,
       nombre,
@@ -285,41 +257,69 @@ const registerUsuarioPorTercero = async (req, res) => {
     });
 
     const token = jwt.sign(
-      { userUuid: nuevoUsuario.uuid }, // Asegúrate de que el uuid está presente aquí
+      { userUuid: nuevoUsuario.uuid },
       process.env.JWT_SECRET,
       { expiresIn: '1d' }
     );
-    
+
     console.log('Token generado:', token);
-    console.log('Payload utilizado:', { userUuid: nuevoUsuario.uuid });
-    
 
     const enlace = `${process.env.FRONTEND_URL}/usuarios/update-account/${token}`;
 
+    // 🔹 Ruta absoluta al logo
+    const logoPath = path.resolve(__dirname, '..', 'assets', 'logo-png-sin-fondo.png');
+
+    // 🔹 Convertir imagen a Base64
+    const logoBase64 = fs.readFileSync(logoPath, { encoding: 'base64' });
+    const logoSrc = `data:image/png;base64,${logoBase64}`;
+
+    // 🔹 Diseño HTML actualizado
     const htmlContent = `
       <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
-        <h1>¡Bienvenido, ${nombre}!</h1>
-        <p>Has sido registrado en nuestra plataforma.</p>
-        <p>Para completar tu registro y actualizar tu contraseña, haz clic en el siguiente enlace:</p>
-        <a href="${enlace}" style="color: #1e88e5; text-decoration: none; font-weight: bold;">Actualizar Cuenta</a>
-        <p>Si no solicitaste este registro, ignora este mensaje.</p>
+        <table style="width: 100%; max-width: 600px; margin: auto; border: 1px solid #ddd; border-radius: 8px; box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1); overflow: hidden;">
+          <thead>
+            <tr>
+              <th style="background: linear-gradient(to right, #1e3a8a, #3b82f6); color: #fff; padding: 16px; text-align: center;">
+                <div style="display: flex; align-items: center; justify-content: center; gap: 10px;">
+                  <img src="${logoSrc}" alt="Logo Registro de Bienes" style="max-width: 80px; height: auto;" />
+                  <h1 style="margin: 0; font-size: 20px;">¡Bienvenido al Sistema Provincial Preventivo de Registro de Bienes Muebles Usados!</h1>
+                </div>
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td style="padding: 16px; text-align: center;">
+                <p>Hola <strong>${nombre}</strong>,</p>
+                <p>
+                  Has sido registrado en nuestra plataforma. Para completar tu registro y actualizar tu contraseña, haz clic en el siguiente enlace:
+                </p>
+                <p>
+                  <a href="${enlace}" style="display: inline-block; padding: 12px 24px; background-color: #1e88e5; color: #fff; text-decoration: none; border-radius: 4px;">Actualizar Cuenta</a>
+                </p>
+                <p>
+                  Si no solicitaste este registro, ignora este mensaje.
+                </p>
+                <p style="color: #888; font-size: 0.9em; margin-top: 20px;">
+                  Atentamente,<br>El equipo del Sistema Provincial Preventivo de Registro de Bienes Muebles Usados.
+                </p>
+              </td>
+            </tr>
+          </tbody>
+          <tfoot>
+    
+            </tr>
+          </tfoot>
+        </table>
       </div>
     `;
 
-    const logoPath = path.resolve(__dirname, '..', 'assets', 'logoprueba.png');
-
+    // 🔹 Enviar correo con HTML que incluye la imagen Base64
     await enviarCorreo(
       email,
-      'Completa tu registro',
-      `Hola ${nombre}, completa tu registro.`,
-      htmlContent,
-      [
-        {
-          filename: 'logoprueba.png',
-          path: logoPath,
-          cid: 'logo',
-        },
-      ]
+      'Completa tu registro en el Sistema Provincial Preventivo de Registro de Bienes Muebles Usados',
+      `Hola ${nombre}, haz clic en el enlace para completar tu registro.`,
+      htmlContent
     );
 
     res.status(201).json({
@@ -333,9 +333,7 @@ const registerUsuarioPorTercero = async (req, res) => {
       detalles: error.message,
     });
   }
-}
-
-
+};
 
 
 const updateAccount = async (req, res) => {
@@ -493,7 +491,7 @@ const cambiarEstadoUsuario = async (req, res) => {
 Su cuenta ha sido aprobada correctamente.
 
 Atentamente,
-El equipo de Bienes Muebles`;
+El equipo de Sistema Provincial Preventivo de Registro de Bienes Muebles Usados`;
         try {
           await enviarCorreo(usuario.email, subject, text, null);
           console.log(`Correo de aprobación enviado a: ${usuario.email}`);
@@ -525,7 +523,7 @@ El equipo de Bienes Muebles`;
     ${reintentarRegistroLink}
     
     Atentamente,
-    El equipo de Bienes Muebles`;
+    El equipo del Sistema Provincial Preventivo de Registro de Bienes Muebles Usados`;
     
         const html = `
           <p>Hola ${usuario.nombre},</p>
