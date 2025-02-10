@@ -47,16 +47,7 @@ const crearUsuario = async (req, res) => {
     const hashedPassword = await bcrypt.hash(password, 10);
 
     // Crear usuario en la BD
-    const nuevoUsuario = await Usuario.create({
-      nombre,
-      apellido,
-      email,
-      password: hashedPassword,
-      tipo,
-      dni,
-      direccion,
-      estado: 'pendiente',
-    });
+  
     // Crear el nuevo usuario
     // Crear el nuevo usuario
     const nuevoUsuario = await Usuario.create({
@@ -539,9 +530,8 @@ El equipo de Sistema Provincial Preventivo de Registro de Bienes Muebles Usados`
     ${reintentarRegistroLink}
     
     Atentamente,
-    El equipo del Sistema Provincial Preventivo de Registro de Bienes Muebles Usados`;
+    'El equipo del Sistema Provincial Preventivo de Registro de Bienes Muebles Usados`;
     
-    El equipo de Bienes Muebles`;
 
         const html = `
           <p>Hola ${usuario.nombre},</p>
