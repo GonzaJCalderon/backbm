@@ -111,3 +111,4 @@ const uploadFileToCloudinary = async (fileBuffer) => {
 };
 
 module.exports = { uploadFotosMiddleware, uploadFileToCloudinary, uploadFotos };
+

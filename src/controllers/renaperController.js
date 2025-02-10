@@ -45,6 +45,7 @@ exports.getData = async (req, res) => {
         return res.status(404).json({
             success: false,
             message: 'No se encontraron datos para el número de documento proporcionado.',
+            datos: responseM
         });
     } catch (error) {
         console.error(error);

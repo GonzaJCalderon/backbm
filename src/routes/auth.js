@@ -1,7 +1,6 @@
 require('dotenv').config(); // Carga las variables de entorno desde el archivo .env
 const express = require('express');
 const bcrypt = require('bcryptjs');
-const jwt = require('jsonwebtoken');
 const { Usuario } = require('../models/Usuario'); // Ajusta el path según tu estructura
 const { loginUsuario } = require('../controllers/authController'); // Asegúrate de que esta ruta es correcta
 const { validarCamposRequeridos } = require('../utils/validationUtils'); // Función para validar campos requeridos

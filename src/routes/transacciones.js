@@ -1,15 +1,16 @@
 const express = require('express');
 const router = express.Router();
 const transaccionesController = require('../controllers/transaccionesController');
-const { verifyToken, verificarPermisos } = require('../middlewares/authMiddleware');
-const { uploadFotosMiddleware} = require('../middlewares/uploadFotos');
-const {  uploadFotosVentaMiddleware } = require('../middlewares/uploadFotosVenta');
-const { authMiddleware,  } = require('../middlewares/authMiddleware');
+
+const { verificarPermisos } = require('../middlewares/authMiddleware');
+const { uploadFotosMiddleware } = require('../middlewares/uploadFotos');
+const { authMiddleware } = require('../middlewares/authMiddleware');
+const { verifyToken } = require('../middlewares/authJwt');
 
 
 // Registrar compra
 // Ruta para registrar compra
-router.post('/comprar',authMiddleware, verifyToken, uploadFotosMiddleware, transaccionesController.registrarCompra);
+router.post('/comprar', authMiddleware, verifyToken, uploadFotosMiddleware, transaccionesController.registrarCompra);
 
 // Registrar venta
 
