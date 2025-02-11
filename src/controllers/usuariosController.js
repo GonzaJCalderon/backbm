@@ -25,8 +25,6 @@ const { v4: uuidv4 } = require('uuid');
 
 
 // Crear un nuevo usuario
-
-
 const crearUsuario = async (req, res) => {
   try {
     const { nombre, apellido, email, password, tipo, dni, direccion } = req.body;
@@ -64,12 +62,10 @@ const crearUsuario = async (req, res) => {
       estado: 'pendiente', // Estado inicial
     });
 
-    // 🔹 Convertir el logo a Base64
-    const logoPath = path.resolve(__dirname, '..', 'assets', 'logo-png-sin-fondo.png');
-    const logoBase64 = fs.readFileSync(logoPath, { encoding: 'base64' });
-    const logoSrc = `data:image/png;base64,${logoBase64}`;
+    // 🔹 URL del logo en Cloudinary (reemplaza con tu enlace)
+    const logoSrc = 'https://res.cloudinary.com/dtx5ziooo/image/upload/v1739288789/logo-png-sin-fondo_lyddzv.png';
 
-    // 🔹 Plantilla HTML con la imagen en Base64
+    // 🔹 Plantilla HTML con la imagen desde la URL
     const htmlContent = `
     <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
         <table style="width: 100%; max-width: 600px; margin: auto; border: 1px solid #ddd; border-radius: 8px; box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1); overflow: hidden;">
@@ -81,7 +77,9 @@ const crearUsuario = async (req, res) => {
                                 src="${logoSrc}" 
                                 alt="Logo Registro de Bienes" 
                                 style="max-width: 80px; height: auto;" />
-                            <h1 style="margin: 0; font-size: 20px;">¡Bienvenido al Sistema Provincial Preventivo de Bienes Muebles Usados!</h1>
+                            <h1 style="margin: 0; font-size: 20px;">
+                              ¡Bienvenido al Sistema Provincial Preventivo de Bienes Muebles Usados!
+                            </h1>
                         </div>
                     </th>
                 </tr>
@@ -98,7 +96,8 @@ const crearUsuario = async (req, res) => {
                             Mientras tanto, si tienes alguna duda o consulta, no dudes en contactarnos. Estamos aquí para ayudarte.
                         </p>
                         <p style="color: #888; font-size: 0.9em; margin-top: 20px;">
-                            Atentamente,<br>El equipo del Sistema Provincial Preventivo de Bienes Muebles Usados .
+                            Atentamente,<br>
+                            El equipo del Sistema Provincial Preventivo de Bienes Muebles Usados.
                         </p>
                     </td>
                 </tr>
@@ -107,8 +106,13 @@ const crearUsuario = async (req, res) => {
     </div>
     `;
 
-    // 🔹 Enviar el correo con la plantilla HTML que incluye la imagen en Base64
-    await enviarCorreo(email, 'Solicitud Pendiente en el Sistema Provincial Preventivo de Registro de Bienes Muebles Usados', `Hola ${nombre}, tu solicitud está pendiente de revisión.`, htmlContent);
+    // 🔹 Enviar el correo con la plantilla HTML que incluye la imagen de Cloudinary
+    await enviarCorreo(
+      email,
+      'Solicitud Pendiente en el Sistema Provincial Preventivo de Registro de Bienes Muebles Usados',
+      `Hola ${nombre}, tu solicitud está pendiente de revisión.`,
+      htmlContent
+    );
 
     // 🔹 Responder con éxito
     res.status(201).json({
@@ -263,21 +267,15 @@ const registerUsuarioPorTercero = async (req, res) => {
       { expiresIn: '1d' }
     );
 
-
     console.log('Token generado:', token);
     console.log('Payload utilizado:', { userUuid: nuevoUsuario.uuid });
 
-
     const enlace = `${process.env.FRONTEND_URL}/usuarios/update-account/${token}`;
 
-    // 🔹 Ruta absoluta al logo
-    const logoPath = path.resolve(__dirname, '..', 'assets', 'logo-png-sin-fondo.png');
+    // 🔹 URL del logo en Cloudinary (reemplaza con tu enlace)
+    const logoSrc = 'https://res.cloudinary.com/dtx5ziooo/image/upload/v1739288789/logo-png-sin-fondo_lyddzv.png';
 
-    // 🔹 Convertir imagen a Base64
-    const logoBase64 = fs.readFileSync(logoPath, { encoding: 'base64' });
-    const logoSrc = `data:image/png;base64,${logoBase64}`;
-
-    // 🔹 Diseño HTML actualizado
+    // 🔹 Diseño HTML actualizado (imagen desde la URL)
     const htmlContent = `
       <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
         <table style="width: 100%; max-width: 600px; margin: auto; border: 1px solid #ddd; border-radius: 8px; box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1); overflow: hidden;">
@@ -285,8 +283,14 @@ const registerUsuarioPorTercero = async (req, res) => {
             <tr>
               <th style="background: linear-gradient(to right, #1e3a8a, #3b82f6); color: #fff; padding: 16px; text-align: center;">
                 <div style="display: flex; align-items: center; justify-content: center; gap: 10px;">
-                  <img src="${logoSrc}" alt="Logo Registro de Bienes" style="max-width: 80px; height: auto;" />
-                  <h1 style="margin: 0; font-size: 20px;">¡Bienvenido al Sistema Provincial Preventivo de Registro de Bienes Muebles Usados!</h1>
+                  <img
+                    src="${logoSrc}"
+                    alt="Logo Registro de Bienes"
+                    style="max-width: 80px; height: auto;"
+                  />
+                  <h1 style="margin: 0; font-size: 20px;">
+                    ¡Bienvenido al Sistema Provincial Preventivo de Registro de Bienes Muebles Usados!
+                  </h1>
                 </div>
               </th>
             </tr>
@@ -305,20 +309,20 @@ const registerUsuarioPorTercero = async (req, res) => {
                   Si no solicitaste este registro, ignora este mensaje.
                 </p>
                 <p style="color: #888; font-size: 0.9em; margin-top: 20px;">
-                  Atentamente,<br>El equipo del Sistema Provincial Preventivo de Registro de Bienes Muebles Usados.
+                  Atentamente,<br>
+                  El equipo del Sistema Provincial Preventivo de Bienes Muebles Usados.
                 </p>
               </td>
             </tr>
           </tbody>
           <tfoot>
-    
             </tr>
           </tfoot>
         </table>
       </div>
     `;
 
-    // 🔹 Enviar correo con HTML que incluye la imagen Base64
+    // 🔹 Enviar correo con HTML que incluye la imagen de Cloudinary
     await enviarCorreo(
       email,
       'Completa tu registro en el Sistema Provincial Preventivo de Registro de Bienes Muebles Usados',
@@ -453,7 +457,7 @@ const aprobarUsuario = async (req, res) => {
 };
 
 const cambiarEstadoUsuario = async (req, res) => {
-  const { uuid } = req.params; // Extraer UUID del usuario desde la ruta
+  const { uuid } = req.params;
   const {
     estado,
     fechaAprobacion,
@@ -461,14 +465,13 @@ const cambiarEstadoUsuario = async (req, res) => {
     motivoRechazo,
     fechaRechazo,
     rechazadoPor,
-  } = req.body; // Extraer datos del payload
+  } = req.body;
 
   console.log(`\n=== Cambiar estado del usuario ===`);
   console.log(`UUID recibido: ${uuid}`);
   console.log('Payload recibido:', req.body);
 
   try {
-    // Buscar usuario en la base de datos
     console.log(`Buscando usuario con UUID: ${uuid}`);
     const usuario = await Usuario.findOne({ where: { uuid } });
     if (!usuario) {
@@ -478,7 +481,6 @@ const cambiarEstadoUsuario = async (req, res) => {
 
     console.log('Usuario encontrado:', usuario);
 
-    // Actualizar estado según la acción
     console.log(`Actualizando estado del usuario a: ${estado}`);
     usuario.estado = estado;
 
@@ -515,7 +517,6 @@ El equipo del Sistema Provincial Preventivo de Registro de Bienes Muebles Usados
         console.log(`Enviando correo de rechazo a: ${usuario.email}`);
         const subject = 'Su cuenta ha sido rechazada';
 
-        // Generar enlace para reenviar el registro
         const reintentarRegistroLink = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/usuarios/${usuario.uuid}/reintentar`;
 
         const text = `Hola ${usuario.nombre},
@@ -528,7 +529,6 @@ El equipo del Sistema Provincial Preventivo de Registro de Bienes Muebles Usados
     
     Atentamente,
     'El equipo del Sistema Provincial Preventivo de Registro de Bienes Muebles Usados`;
-    
 
         const html = `
           <p>Hola ${usuario.nombre},</p>
@@ -548,23 +548,19 @@ El equipo del Sistema Provincial Preventivo de Registro de Bienes Muebles Usados
       }
     }
 
-
-    // Guardar cambios en la base de datos
-    console.log('Guardando cambios en la base de datos...');
     await usuario.save();
     console.log(`Usuario ${uuid} actualizado a estado ${estado}`);
 
-    // Responder al cliente con éxito
     return res.status(200).json({
       message: `Usuario ${estado} correctamente`,
       usuario,
     });
   } catch (error) {
-    // Capturar errores generales
     console.error('Error al cambiar estado del usuario:', error);
     return res.status(500).json({ message: 'Error interno al cambiar estado del usuario.' });
   }
 };
+
 
 
 const reintentarRegistro = async (req, res) => {
