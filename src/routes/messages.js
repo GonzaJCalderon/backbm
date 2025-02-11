@@ -13,7 +13,8 @@ const {
 } = require('../controllers/messageController');
 
 // Nueva ruta para obtener mensajes de un usuario específico
-router.get("/:userUuid", verifyToken, getMessagesByUser);
+router.get("/user/:userUuid", verifyToken, getMessagesByUser);
+
 
 
 // Ruta para que un usuario envíe un mensaje

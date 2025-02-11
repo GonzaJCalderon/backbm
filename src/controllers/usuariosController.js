@@ -1,11 +1,14 @@
-const bcrypt = require('bcryptjs');
-const jwt = require('jsonwebtoken');
 const fs = require('fs');
 const path = require('path');
+const bcrypt = require('bcrypt');
+const { Op } = require('sequelize');
+const jwt = require('jsonwebtoken');
+
+
 require('dotenv').config();
 
 const { Usuario, Bien, Stock, Transaccion, HistorialCambios, DetallesBien, PasswordResetToken } = require('../models'); // Importa los modelos correctamente
-const { Op } = require('sequelize');
+
 const { validarCampos } = require('../utils/validationUtils');
 const { enviarCorreo } = require('../services/emailService');
 const moment = require('moment');
@@ -27,12 +30,14 @@ const crearUsuario = async (req, res) => {
   try {
     const { nombre, apellido, email, password, tipo, dni, direccion } = req.body;
 
+    // 🔹 Validar que todos los campos estén completos
     if (!nombre || !apellido || !email || !password || !tipo || !dni || !direccion) {
       return res.status(400).json({
         message: 'Todos los campos obligatorios deben ser proporcionados.',
       });
     }
 
+    // 🔹 Verificar si el usuario ya existe por email o DNI
     const usuarioExistente = await Usuario.findOne({
       where: { [Op.or]: [{ email }, { dni }] },
     });
@@ -43,13 +48,10 @@ const crearUsuario = async (req, res) => {
       });
     }
 
-    // Hashear la contraseña
+    // 🔹 Hashear la contraseña antes de guardarla
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // Crear usuario en la BD
-  
-    // Crear el nuevo usuario
-    // Crear el nuevo usuario
+    // 🔹 Crear el usuario en la base de datos
     const nuevoUsuario = await Usuario.create({
       nombre,
       apellido,
@@ -57,62 +59,57 @@ const crearUsuario = async (req, res) => {
       password: hashedPassword,
       tipo,
       dni,
-      direccion, // Enviar el objeto directamente
+      direccion,
       estado: 'pendiente', // Estado inicial
     });
 
-    // 🔹 Ruta absoluta al logo
+    // 🔹 Convertir el logo a Base64
     const logoPath = path.resolve(__dirname, '..', 'assets', 'logo-png-sin-fondo.png');
-
-    // 🔹 Convertir imagen a Base64
     const logoBase64 = fs.readFileSync(logoPath, { encoding: 'base64' });
     const logoSrc = `data:image/png;base64,${logoBase64}`;
 
-    // 🔹 Diseño HTML actualizado con Base64
+    // 🔹 Plantilla HTML con la imagen en Base64
     const htmlContent = `
-      <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+    <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
         <table style="width: 100%; max-width: 600px; margin: auto; border: 1px solid #ddd; border-radius: 8px; box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1); overflow: hidden;">
-          <thead>
-            <tr>
-              <th style="background: linear-gradient(to right, #1e3a8a, #3b82f6); color: #fff; padding: 16px; text-align: center;">
-                <div style="display: flex; align-items: center; justify-content: center; gap: 10px;">
-                  <img src="${logoSrc}" alt="Logo Registro de Bienes" style="max-width: 80px; height: auto;" />
-                  <h1 style="margin: 0; font-size: 20px;">¡Bienvenido al Sistema Provincial Preventivo de Registro de Bienes Muebles Usados!</h1>
-                </div>
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td style="padding: 16px; text-align: center;">
-                <p>Hola <strong>${nombre}</strong>,</p>
-                <p>
-                 Tu solicitud de registro está 
-                  <strong>pendiente de revisión</strong>. Pronto te informaremos sobre el estado de tu cuenta.
-                </p>
-                <p>
-                  Mientras tanto, si tienes alguna duda o consulta, no dudes en contactarnos. Estamos aquí para ayudarte.
-                </p>
-                <p style="color: #888; font-size: 0.9em; margin-top: 20px;">
-                  Atentamente,<br>El equipo del Sistema Provincial Preventivo de Registro de Bienes Muebles Usados.
-                </p>
-              </td>
-            </tr>
-          </tbody>
-          <tfoot>
-            <tr>
-              <td style="background-color: #f4f4f4; color: #666; font-size: 0.8em; text-align: center; padding: 10px;">
-               
-              </td>
-            </tr>
-          </tfoot>
+            <thead>
+                <tr>
+                    <th style="background: linear-gradient(to right, #1e3a8a, #3b82f6); color: #fff; padding: 16px; text-align: center;">
+                        <div style="display: flex; align-items: center; justify-content: center; gap: 10px;">
+                            <img 
+                                src="${logoSrc}" 
+                                alt="Logo Registro de Bienes" 
+                                style="max-width: 80px; height: auto;" />
+                            <h1 style="margin: 0; font-size: 20px;">¡Bienvenido al Sistema Provincial Preventivo de Bienes Muebles Usados!</h1>
+                        </div>
+                    </th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td style="padding: 16px; text-align: center;">
+                        <p>Hola <strong>${nombre}</strong>,</p>
+                        <p>
+                            Tu solicitud de registro está 
+                            <strong>pendiente de revisión</strong>. Pronto te informaremos sobre el estado de tu cuenta.
+                        </p>
+                        <p>
+                            Mientras tanto, si tienes alguna duda o consulta, no dudes en contactarnos. Estamos aquí para ayudarte.
+                        </p>
+                        <p style="color: #888; font-size: 0.9em; margin-top: 20px;">
+                            Atentamente,<br>El equipo del Sistema Provincial Preventivo de Bienes Muebles Usados .
+                        </p>
+                    </td>
+                </tr>
+            </tbody>
         </table>
-      </div>
+    </div>
     `;
 
-    // 🔹 Enviar correo con HTML que incluye la imagen Base64
+    // 🔹 Enviar el correo con la plantilla HTML que incluye la imagen en Base64
     await enviarCorreo(email, 'Solicitud Pendiente en el Sistema Provincial Preventivo de Registro de Bienes Muebles Usados', `Hola ${nombre}, tu solicitud está pendiente de revisión.`, htmlContent);
 
+    // 🔹 Responder con éxito
     res.status(201).json({
       message: 'Usuario creado y correo enviado exitosamente.',
       usuario: nuevoUsuario,
@@ -498,7 +495,7 @@ const cambiarEstadoUsuario = async (req, res) => {
 Su cuenta ha sido aprobada correctamente.
 
 Atentamente,
-El equipo de Sistema Provincial Preventivo de Registro de Bienes Muebles Usados`;
+El equipo del Sistema Provincial Preventivo de Registro de Bienes Muebles Usados`;
         try {
           await enviarCorreo(usuario.email, subject, text, null);
           console.log(`Correo de aprobación enviado a: ${usuario.email}`);

@@ -1,9 +1,11 @@
 require('dotenv').config();
 const jwt = require('jsonwebtoken');
+const config = require('../config/auth.config'); 
 
 const SECRET_KEY = process.env.SECRET_KEY || 'bienes_muebles'; // Clave secreta para JWT
 
 // Middleware para verificar el token
+
 const verifyToken = (req, res, next) => {
   try {
     const authHeader = req.headers['authorization'];
@@ -13,17 +15,17 @@ const verifyToken = (req, res, next) => {
       return res.status(401).json({ message: 'Token no proporcionado.' });
     }
 
-    const decoded = jwt.verify(token, SECRET_KEY);
-    
+    const decoded = jwt.verify(token, config.secret); // Usamos config.secret aquí
+
     if (!decoded.uuid) {
       return res.status(400).json({ message: 'El token no contiene un UUID válido.' });
     }
 
-    console.log('Token decodificado completo:', decoded); // Debugging
+    console.log('Token decodificado completo:', decoded);
 
     req.user = {
-      uuid: decoded.uuid,  // Asegurar que uuid está presente
-      rol: decoded.rol || 'usuario' // Si el rol no está definido, asumir 'usuario'
+      uuid: decoded.uuid,
+      rol: decoded.rol || 'usuario'
     };
 
     next();
@@ -32,7 +34,6 @@ const verifyToken = (req, res, next) => {
     res.status(403).json({ message: 'Token inválido o expirado.' });
   }
 };
-
 
 
 
