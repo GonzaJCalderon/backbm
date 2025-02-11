@@ -4,6 +4,8 @@ const cookieParser = require('cookie-parser');
 const path = require('path');
 const { sequelize, Usuario, Bien, Stock, Transaccion, DetallesBien, HistorialCambios, PasswordResetToken, Message } = require('./src/models'); // Importar modelos configurados
 require('dotenv').config();
+const bcrypt = require('bcryptjs');
+
 
 const app = express();
 const PORT = process.env.PORT || 5005;

@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
-const bcrypt = require('bcrypt');
+const bcrypt = require('bcryptjs');
+
 const { Op } = require('sequelize');
 const jwt = require('jsonwebtoken');
 
@@ -143,9 +144,9 @@ const login = async (req, res) => {
     const secretKey = process.env.SECRET_KEY || 'bienes_muebles';
     const refreshSecret = process.env.REFRESH_SECRET_KEY || 'refresh_muebles';
 
-    // Generar token principal (JWT)
+    // Generar token principal (JWT) con rolDefinitivo
     const token = jwt.sign(
-      { uuid: usuario.uuid, email: usuario.email, rol: usuario.rolDefinitivo },
+      { uuid: usuario.uuid, email: usuario.email, rolDefinitivo: usuario.rolDefinitivo },
       config.secret,
       { expiresIn: config.jwtExpiration }
     );
@@ -183,7 +184,6 @@ const login = async (req, res) => {
     res.status(500).json({ message: 'Error interno del servidor.' });
   }
 };
-
 
 
 

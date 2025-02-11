@@ -3,13 +3,14 @@ const router = express.Router();
 const { Usuario } = require('../models'); // Ajusta la ruta según tu estructura de archivos
 const jwt = require('jsonwebtoken'); // Importación necesaria
 const bcrypt = require('bcryptjs');
+
 require('dotenv').config();
 
 
 const usuarioController = require('../controllers/usuariosController');
 const { validarCampos } = require('../utils/validationUtils');
-const { verificarPermisos } = require('../middlewares/authMiddleware');
-const { verifyToken } = require('../middlewares/authJwt');
+// const { verificarPermisos } = require('../middlewares/authMiddleware');
+const { verifyToken, verificarPermisos } = require('../middlewares/authJwt');
 
 const secretKey = process.env.SECRET_KEY || 'bienes_muebles'; // Usa la clave secreta de .env
 
@@ -21,6 +22,7 @@ router.post(
   validarCampos(['nombre', 'apellido', 'email', 'password', 'tipo', 'direccion']), // Valida dirección, pero no barrio
   usuarioController.crearUsuario
 );
+
 
 
 router.post('/login', usuarioController.login);
@@ -198,7 +200,11 @@ router.put('/:uuid/rechazar', verifyToken, verificarPermisos(['admin']), async (
 
 
 // Ruta para obtener usuarios aprobados
-router.get('/usuarios/aprobados', verifyToken, verificarPermisos(['admin', 'moderador']), async (req, res) => {
+router.get('/usuarios/aprobados', async (req, res) => {
+  console.log('📌 Entrando a la ruta /usuarios/aprobados...');
+  console.log('🔍 Headers recibidos:', req.headers);
+  console.log('🔍 Query Params:', req.query);
+  
   req.query.estado = 'aprobado'; // Filtro correcto
   await usuarioController.obtenerUsuariosPorEstado(req, res);
 });
