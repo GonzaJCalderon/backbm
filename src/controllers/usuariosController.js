@@ -484,6 +484,9 @@ const cambiarEstadoUsuario = async (req, res) => {
     console.log(`Actualizando estado del usuario a: ${estado}`);
     usuario.estado = estado;
 
+    // URL del logo
+    const logoSrc = 'https://res.cloudinary.com/dtx5ziooo/image/upload/v1739288789/logo-png-sin-fondo_lyddzv.png';
+
     if (estado === 'aprobado') {
       console.log('Procesando aprobación...');
       usuario.fechaAprobacion = fechaAprobacion || new Date().toISOString();
@@ -492,14 +495,45 @@ const cambiarEstadoUsuario = async (req, res) => {
       if (usuario.email) {
         console.log(`Enviando correo de aprobación a: ${usuario.email}`);
         const subject = 'Su cuenta ha sido aprobada';
-        const text = `Hola ${usuario.nombre},
 
-Su cuenta ha sido aprobada correctamente.
+        const htmlContent = `
+        <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+            <table style="width: 100%; max-width: 600px; margin: auto; border: 1px solid #ddd; border-radius: 8px; box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1); overflow: hidden;">
+                <thead>
+                    <tr>
+                        <th style="background: linear-gradient(to right, #1e3a8a, #3b82f6); color: #fff; padding: 16px; text-align: center;">
+                            <div style="display: flex; align-items: center; justify-content: center; gap: 10px;">
+                                <img src="${logoSrc}" alt="Logo Registro de Bienes" style="max-width: 80px; height: auto;" />
+                                <h1 style="margin: 0; font-size: 20px;">
+                                  ¡Su cuenta ha sido aprobada!
+                                </h1>
+                            </div>
+                        </th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td style="padding: 16px; text-align: center;">
+                            <p>Hola <strong>${usuario.nombre}</strong>,</p>
+                            <p>
+                                ¡Nos complace informarle que su cuenta ha sido <strong>aprobada</strong> exitosamente! 
+                            </p>
+                            <p>
+                                Ahora puede acceder a nuestro sistema y comenzar a utilizar nuestros servicios.
+                            </p>
+                            <p style="color: #888; font-size: 0.9em; margin-top: 20px;">
+                                Atentamente,<br>
+                                El equipo del Sistema Provincial Preventivo de Bienes Muebles Usados.
+                            </p>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+        `;
 
-Atentamente,
-El equipo del Sistema Provincial Preventivo de Registro de Bienes Muebles Usados`;
         try {
-          await enviarCorreo(usuario.email, subject, text, null);
+          await enviarCorreo(usuario.email, subject, `Hola ${usuario.nombre}, su cuenta ha sido aprobada.`, htmlContent);
           console.log(`Correo de aprobación enviado a: ${usuario.email}`);
         } catch (emailError) {
           console.error('Error al enviar correo de aprobación:', emailError);
@@ -519,28 +553,48 @@ El equipo del Sistema Provincial Preventivo de Registro de Bienes Muebles Usados
 
         const reintentarRegistroLink = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/usuarios/${usuario.uuid}/reintentar`;
 
-        const text = `Hola ${usuario.nombre},
-    
-    Lamentamos informarle que su cuenta ha sido rechazada.
-    Motivo: "${motivoRechazo}"
-    
-    Puede reenviar su solicitud haciendo clic en el siguiente enlace:
-    ${reintentarRegistroLink}
-    
-    Atentamente,
-    'El equipo del Sistema Provincial Preventivo de Registro de Bienes Muebles Usados`;
-
-        const html = `
-          <p>Hola ${usuario.nombre},</p>
-          <p>Lamentamos informarle que su cuenta ha sido rechazada.</p>
-          <blockquote style="color: red;">"${motivoRechazo}"</blockquote>
-          <p>Puede reenviar su solicitud haciendo clic en el siguiente enlace:</p>
-          <a href="${reintentarRegistroLink}" style="color: blue; font-weight: bold;">Reenviar Registro</a>
-          <p>Atentamente,<br>El equipo de Bienes Muebles</p>
+        const htmlContent = `
+        <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+            <table style="width: 100%; max-width: 600px; margin: auto; border: 1px solid #ddd; border-radius: 8px; box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1); overflow: hidden;">
+                <thead>
+                    <tr>
+                        <th style="background: linear-gradient(to right, #b91c1c, #ef4444); color: #fff; padding: 16px; text-align: center;">
+                            <div style="display: flex; align-items: center; justify-content: center; gap: 10px;">
+                                <img src="${logoSrc}" alt="Logo Registro de Bienes" style="max-width: 80px; height: auto;" />
+                                <h1 style="margin: 0; font-size: 20px;">
+                                  Su cuenta ha sido rechazada
+                                </h1>
+                            </div>
+                        </th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td style="padding: 16px; text-align: center;">
+                            <p>Hola <strong>${usuario.nombre}</strong>,</p>
+                            <p style="color: red;">
+                                Lamentamos informarle que su cuenta ha sido <strong>rechazada</strong>.
+                            </p>
+                            <p style="color: red;">
+                                Motivo: "${motivoRechazo}"
+                            </p>
+                            <p>
+                                Puede reenviar su solicitud haciendo clic en el siguiente enlace:
+                            </p>
+                            <a href="${reintentarRegistroLink}" style="color: blue; font-weight: bold;">Reenviar Registro</a>
+                            <p style="color: #888; font-size: 0.9em; margin-top: 20px;">
+                                Atentamente,<br>
+                                El equipo del Sistema Provincial Preventivo de Bienes Muebles Usados.
+                            </p>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
         `;
 
         try {
-          await enviarCorreo(usuario.email, subject, text, html);
+          await enviarCorreo(usuario.email, subject, `Hola ${usuario.nombre}, su cuenta ha sido rechazada. Motivo: "${motivoRechazo}"`, htmlContent);
           console.log(`Correo de rechazo enviado a: ${usuario.email}`);
         } catch (emailError) {
           console.error('Error al enviar correo de rechazo:', emailError);

@@ -167,20 +167,21 @@ router.get('/:uuid/rolTemporal', verifyToken, verificarPermisos(['admin', 'moder
 
 router.delete('/:uuid/rolTemporal', verifyToken, verificarPermisos(['admin']), usuarioController.removerRolTemporal);
 
-// Ruta para aprobar un usuario
 router.put('/:uuid/aprobar', verifyToken, verificarPermisos(['admin']), async (req, res) => {
-  const { uuid } = req.params;
-  const { fechaAprobacion, aprobadoPor, aprobadoPorNombre } = req.body;
+  console.log(`Solicitud de aprobación recibida para UUID: ${req.params.uuid}`);
+  console.log('Datos recibidos:', req.body);
 
-  if (!aprobadoPor || !aprobadoPorNombre) {
+  if (!req.body.aprobadoPor || !req.body.aprobadoPorNombre) {
+    console.error('Faltan datos obligatorios');
     return res.status(400).json({ message: 'Los campos aprobadoPor y aprobadoPorNombre son obligatorios.' });
   }
 
   req.body.estado = 'aprobado';
-  req.body.fechaAprobacion = fechaAprobacion || new Date().toISOString();
+  req.body.fechaAprobacion = req.body.fechaAprobacion || new Date().toISOString();
 
   await usuarioController.cambiarEstadoUsuario(req, res);
 });
+
 
 // Ruta para rechazar un usuario
 router.put('/:uuid/rechazar', verifyToken, verificarPermisos(['admin']), async (req, res) => {
