@@ -244,7 +244,7 @@ const registrarVenta = async (req, res) => {
         // 📌 Obtener fotos subidas
         const photosData = req.uploadedPhotosVenta?.[i] || {};
         const fotosSubidas = photosData.fotos || [];
-        const imeiFotos = photosData.imeis || {};
+        const imeiFotos = photosData.imeis || {}; // 🔥 Aquí deben estar las fotos de los IMEIs
 
         console.log(`📌 Procesando bien ${i}:`, { imeis, imeiFotos });
 
@@ -291,31 +291,27 @@ const registrarVenta = async (req, res) => {
         if (tipo.toLowerCase() === "teléfono movil") {
           for (let j = 0; j < imeis.length; j++) {
             const { imei, precio } = imeis[j];
-            let foto = imeiFotos[j];
-
-            // 🛠 Si el IMEI ya existe en la base de datos, obtener su foto
-            const imeiExistente = bien.detalles.find(d => d.identificador_unico === imei);
-            if (!foto && imeiExistente) {
-              foto = imeiExistente.foto;
-            }
-
+        
+            // 🔥 Capturamos la foto del IMEI desde el middleware
+            let foto = req.uploadedPhotosVenta?.[i]?.imeis?.[j] || null;
+        
             console.log(`✅ IMEI ${imei} - Foto asignada: ${foto || "❌ No encontrada"}`);
-
+        
             // ❌ Si el IMEI ya existe en `DetallesBien`, no lo volvemos a insertar
             const imeiDuplicado = await DetallesBien.findOne({
               where: { identificador_unico: imei },
               transaction,
             });
-
+        
             if (!imeiDuplicado) {
               await DetallesBien.create({
                 uuid: uuidv4(),
                 bien_uuid: bien.uuid,
                 identificador_unico: imei,
                 estado: "disponible",
-                foto: foto,
+                foto: foto, // 🔥 Guardamos la foto en la base de datos
               }, { transaction });
-
+        
               console.log(`✅ IMEI ${imei} guardado con foto: ${foto}`);
             } else {
               console.log(`⚠️ IMEI ${imei} ya existe, se omite.`);
@@ -358,7 +354,7 @@ const registrarVenta = async (req, res) => {
           },
           { where: { uuid: bien.uuid }, transaction }
         );
-        
+
         // 📌 Registrar la transacción
         await Transaccion.create({
           uuid: uuidv4(),
@@ -390,7 +386,6 @@ const registrarVenta = async (req, res) => {
     return res.status(500).json({ message: "Error interno del servidor." });
   }
 };
-
 
 
 
