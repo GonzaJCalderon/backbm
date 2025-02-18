@@ -219,11 +219,13 @@ const registrarVenta = async (req, res) => {
     let bienesArray;
     try {
       bienesArray = typeof ventaData === "string" ? JSON.parse(ventaData.trim()) : ventaData;
+      console.log("✅ bienesArray procesado:", bienesArray);
       if (!Array.isArray(bienesArray)) throw new Error("El formato de ventaData es incorrecto.");
     } catch (error) {
-      console.error("❌ Error al convertir ventaData:", error);
-      return res.status(400).json({ message: "Error al procesar ventaData. Asegúrate de enviar un JSON válido." });
+      console.error("❌ Error al convertir ventaData:", ventaData, error);
+      return res.status(400).json({ message: "Error al procesar ventaData", error: error.message });
     }
+    
 
     const transaction = await sequelize.transaction();
 
