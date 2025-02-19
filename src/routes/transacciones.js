@@ -5,6 +5,7 @@ const transaccionesController = require('../controllers/transaccionesController'
 const { verificarPermisos } = require('../middlewares/authMiddleware');
 const { uploadFotosMiddleware } = require('../middlewares/uploadFotos');
 const { authMiddleware } = require('../middlewares/authMiddleware');
+const { uploadFotosVentaMiddleware } = require('../middlewares/uploadFotosVenta');
 const { verifyToken } = require('../middlewares/authJwt');
 
 

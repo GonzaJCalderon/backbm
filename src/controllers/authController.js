@@ -1,10 +1,8 @@
-const Usuario = require('../models/Usuario'); // Importa tu modelo de usuario
-const bcrypt = require('bcryptjs'); // Importa bcrypt para la verificación de contraseñas
-const jwt = require('jsonwebtoken'); // Importa jwt para la generación de tokens
-const { validarCamposRequeridos } = require('../utils/validationUtils'); // Importa la función de validación
+const Usuario = require('../models/Usuario'); 
+const bcrypt = require('bcryptjs'); 
+const jwt = require('jsonwebtoken'); 
+const { validarCamposRequeridos } = require('../utils/validationUtils'); 
 const config = require('../config/auth.config');
-
-
 
 const loginUsuario = async (req, res) => {
     const { email, password } = req.body;
@@ -31,6 +29,10 @@ const loginUsuario = async (req, res) => {
             return res.status(401).json({ message: 'Credenciales inválidas' });
         }
 
+        if (!user.rolDefinitivo) {
+            return res.status(403).json({ message: 'No se pudo determinar el rol del usuario.' });
+        }
+
         // Construir respuesta del usuario
         const responseUser = {
             uuid: user.uuid, // ✅ Asegurar uso de uuid
@@ -42,17 +44,15 @@ const loginUsuario = async (req, res) => {
             dni: user.dni,
         };
 
-
         // Generar token con rolDefinitivo
         const token = jwt.sign(
             {
-                id: user.id,
+                uuid: user.uuid, // ✅ Se usa `uuid` en lugar de `id`
                 email: user.email,
                 rolDefinitivo: user.rolDefinitivo // Incluye el rol en el token
             },
             config.secret,
             { expiresIn: config.jwtExpiration } // Expiración del token
-
         );
 
         console.log('Respuesta final del backend:', { usuario: responseUser, token });

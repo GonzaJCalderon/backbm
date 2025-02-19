@@ -86,4 +86,6 @@ router.get('/bienes/modelos', verifyToken, bienesController.obtenerModelos);
 // Verificar si un IMEI ya existe
 router.get('/imei-exists/:imei', bienesController.verificarIMEI);
 
+
+
 module.exports = router;

@@ -1,11 +1,15 @@
-const bcrypt = require('bcryptjs');
-const jwt = require('jsonwebtoken');
 const fs = require('fs');
 const path = require('path');
+const bcrypt = require('bcryptjs');
+
+const { Op } = require('sequelize');
+const jwt = require('jsonwebtoken');
+
+
 require('dotenv').config();
 
 const { Usuario, Bien, Stock, Transaccion, HistorialCambios, DetallesBien, PasswordResetToken } = require('../models'); // Importa los modelos correctamente
-const { Op } = require('sequelize');
+
 const { validarCampos } = require('../utils/validationUtils');
 const { enviarCorreo } = require('../services/emailService');
 const moment = require('moment');
@@ -21,18 +25,18 @@ const { v4: uuidv4 } = require('uuid');
 
 
 // Crear un nuevo usuario
-
-
 const crearUsuario = async (req, res) => {
   try {
     const { nombre, apellido, email, password, tipo, dni, direccion } = req.body;
 
+    // 🔹 Validar que todos los campos estén completos
     if (!nombre || !apellido || !email || !password || !tipo || !dni || !direccion) {
       return res.status(400).json({
         message: 'Todos los campos obligatorios deben ser proporcionados.',
       });
     }
 
+    // 🔹 Verificar si el usuario ya existe por email o DNI
     const usuarioExistente = await Usuario.findOne({
       where: { [Op.or]: [{ email }, { dni }] },
     });
@@ -43,13 +47,10 @@ const crearUsuario = async (req, res) => {
       });
     }
 
-    // Hashear la contraseña
+    // 🔹 Hashear la contraseña antes de guardarla
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // Crear usuario en la BD
-  
-    // Crear el nuevo usuario
-    // Crear el nuevo usuario
+    // 🔹 Crear el usuario en la base de datos
     const nuevoUsuario = await Usuario.create({
       nombre,
       apellido,
@@ -57,62 +58,63 @@ const crearUsuario = async (req, res) => {
       password: hashedPassword,
       tipo,
       dni,
-      direccion, // Enviar el objeto directamente
+      direccion,
       estado: 'pendiente', // Estado inicial
     });
 
-    // 🔹 Ruta absoluta al logo
-    const logoPath = path.resolve(__dirname, '..', 'assets', 'logo-png-sin-fondo.png');
+    // 🔹 URL del logo en Cloudinary (reemplaza con tu enlace)
+    const logoSrc = 'https://res.cloudinary.com/dtx5ziooo/image/upload/v1739288789/logo-png-sin-fondo_lyddzv.png';
 
-    // 🔹 Convertir imagen a Base64
-    const logoBase64 = fs.readFileSync(logoPath, { encoding: 'base64' });
-    const logoSrc = `data:image/png;base64,${logoBase64}`;
-
-    // 🔹 Diseño HTML actualizado con Base64
+    // 🔹 Plantilla HTML con la imagen desde la URL
     const htmlContent = `
-      <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+    <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
         <table style="width: 100%; max-width: 600px; margin: auto; border: 1px solid #ddd; border-radius: 8px; box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1); overflow: hidden;">
-          <thead>
-            <tr>
-              <th style="background: linear-gradient(to right, #1e3a8a, #3b82f6); color: #fff; padding: 16px; text-align: center;">
-                <div style="display: flex; align-items: center; justify-content: center; gap: 10px;">
-                  <img src="${logoSrc}" alt="Logo Registro de Bienes" style="max-width: 80px; height: auto;" />
-                  <h1 style="margin: 0; font-size: 20px;">¡Bienvenido al Sistema Provincial Preventivo de Registro de Bienes Muebles Usados!</h1>
-                </div>
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td style="padding: 16px; text-align: center;">
-                <p>Hola <strong>${nombre}</strong>,</p>
-                <p>
-                 Tu solicitud de registro está 
-                  <strong>pendiente de revisión</strong>. Pronto te informaremos sobre el estado de tu cuenta.
-                </p>
-                <p>
-                  Mientras tanto, si tienes alguna duda o consulta, no dudes en contactarnos. Estamos aquí para ayudarte.
-                </p>
-                <p style="color: #888; font-size: 0.9em; margin-top: 20px;">
-                  Atentamente,<br>El equipo del Sistema Provincial Preventivo de Registro de Bienes Muebles Usados.
-                </p>
-              </td>
-            </tr>
-          </tbody>
-          <tfoot>
-            <tr>
-              <td style="background-color: #f4f4f4; color: #666; font-size: 0.8em; text-align: center; padding: 10px;">
-               
-              </td>
-            </tr>
-          </tfoot>
+            <thead>
+                <tr>
+                    <th style="background: linear-gradient(to right, #1e3a8a, #3b82f6); color: #fff; padding: 16px; text-align: center;">
+                        <div style="display: flex; align-items: center; justify-content: center; gap: 10px;">
+                            <img 
+                                src="${logoSrc}" 
+                                alt="Logo Registro de Bienes" 
+                                style="max-width: 80px; height: auto;" />
+                            <h1 style="margin: 0; font-size: 20px;">
+                              ¡Bienvenido al Sistema Provincial Preventivo de Bienes Muebles Usados!
+                            </h1>
+                        </div>
+                    </th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td style="padding: 16px; text-align: center;">
+                        <p>Hola <strong>${nombre}</strong>,</p>
+                        <p>
+                            Tu solicitud de registro está 
+                            <strong>pendiente de revisión</strong>. Pronto te informaremos sobre el estado de tu cuenta.
+                        </p>
+                        <p>
+                            Mientras tanto, si tienes alguna duda o consulta, no dudes en contactarnos. Estamos aquí para ayudarte.
+                        </p>
+                        <p style="color: #888; font-size: 0.9em; margin-top: 20px;">
+                            Atentamente,<br>
+                            El equipo del Sistema Provincial Preventivo de Bienes Muebles Usados.
+                        </p>
+                    </td>
+                </tr>
+            </tbody>
         </table>
-      </div>
+    </div>
     `;
 
-    // 🔹 Enviar correo con HTML que incluye la imagen Base64
-    await enviarCorreo(email, 'Solicitud Pendiente en el Sistema Provincial Preventivo de Registro de Bienes Muebles Usados', `Hola ${nombre}, tu solicitud está pendiente de revisión.`, htmlContent);
+    // 🔹 Enviar el correo con la plantilla HTML que incluye la imagen de Cloudinary
+    await enviarCorreo(
+      email,
+      'Solicitud Pendiente en el Sistema Provincial Preventivo de Registro de Bienes Muebles Usados',
+      `Hola ${nombre}, tu solicitud está pendiente de revisión.`,
+      htmlContent
+    );
 
+    // 🔹 Responder con éxito
     res.status(201).json({
       message: 'Usuario creado y correo enviado exitosamente.',
       usuario: nuevoUsuario,
@@ -146,9 +148,9 @@ const login = async (req, res) => {
     const secretKey = process.env.SECRET_KEY || 'bienes_muebles';
     const refreshSecret = process.env.REFRESH_SECRET_KEY || 'refresh_muebles';
 
-    // Generar token principal (JWT)
+    // Generar token principal (JWT) con rolDefinitivo
     const token = jwt.sign(
-      { uuid: usuario.uuid, email: usuario.email, rol: usuario.rolDefinitivo },
+      { uuid: usuario.uuid, email: usuario.email, rolDefinitivo: usuario.rolDefinitivo },
       config.secret,
       { expiresIn: config.jwtExpiration }
     );
@@ -186,7 +188,6 @@ const login = async (req, res) => {
     res.status(500).json({ message: 'Error interno del servidor.' });
   }
 };
-
 
 
 
@@ -266,21 +267,15 @@ const registerUsuarioPorTercero = async (req, res) => {
       { expiresIn: '1d' }
     );
 
-
     console.log('Token generado:', token);
     console.log('Payload utilizado:', { userUuid: nuevoUsuario.uuid });
 
-
     const enlace = `${process.env.FRONTEND_URL}/usuarios/update-account/${token}`;
 
-    // 🔹 Ruta absoluta al logo
-    const logoPath = path.resolve(__dirname, '..', 'assets', 'logo-png-sin-fondo.png');
+    // 🔹 URL del logo en Cloudinary (reemplaza con tu enlace)
+    const logoSrc = 'https://res.cloudinary.com/dtx5ziooo/image/upload/v1739288789/logo-png-sin-fondo_lyddzv.png';
 
-    // 🔹 Convertir imagen a Base64
-    const logoBase64 = fs.readFileSync(logoPath, { encoding: 'base64' });
-    const logoSrc = `data:image/png;base64,${logoBase64}`;
-
-    // 🔹 Diseño HTML actualizado
+    // 🔹 Diseño HTML actualizado (imagen desde la URL)
     const htmlContent = `
       <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
         <table style="width: 100%; max-width: 600px; margin: auto; border: 1px solid #ddd; border-radius: 8px; box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1); overflow: hidden;">
@@ -288,8 +283,14 @@ const registerUsuarioPorTercero = async (req, res) => {
             <tr>
               <th style="background: linear-gradient(to right, #1e3a8a, #3b82f6); color: #fff; padding: 16px; text-align: center;">
                 <div style="display: flex; align-items: center; justify-content: center; gap: 10px;">
-                  <img src="${logoSrc}" alt="Logo Registro de Bienes" style="max-width: 80px; height: auto;" />
-                  <h1 style="margin: 0; font-size: 20px;">¡Bienvenido al Sistema Provincial Preventivo de Registro de Bienes Muebles Usados!</h1>
+                  <img
+                    src="${logoSrc}"
+                    alt="Logo Registro de Bienes"
+                    style="max-width: 80px; height: auto;"
+                  />
+                  <h1 style="margin: 0; font-size: 20px;">
+                    ¡Bienvenido al Sistema Provincial Preventivo de Registro de Bienes Muebles Usados!
+                  </h1>
                 </div>
               </th>
             </tr>
@@ -308,20 +309,20 @@ const registerUsuarioPorTercero = async (req, res) => {
                   Si no solicitaste este registro, ignora este mensaje.
                 </p>
                 <p style="color: #888; font-size: 0.9em; margin-top: 20px;">
-                  Atentamente,<br>El equipo del Sistema Provincial Preventivo de Registro de Bienes Muebles Usados.
+                  Atentamente,<br>
+                  El equipo del Sistema Provincial Preventivo de Bienes Muebles Usados.
                 </p>
               </td>
             </tr>
           </tbody>
           <tfoot>
-    
             </tr>
           </tfoot>
         </table>
       </div>
     `;
 
-    // 🔹 Enviar correo con HTML que incluye la imagen Base64
+    // 🔹 Enviar correo con HTML que incluye la imagen de Cloudinary
     await enviarCorreo(
       email,
       'Completa tu registro en el Sistema Provincial Preventivo de Registro de Bienes Muebles Usados',
@@ -456,7 +457,7 @@ const aprobarUsuario = async (req, res) => {
 };
 
 const cambiarEstadoUsuario = async (req, res) => {
-  const { uuid } = req.params; // Extraer UUID del usuario desde la ruta
+  const { uuid } = req.params;
   const {
     estado,
     fechaAprobacion,
@@ -464,14 +465,13 @@ const cambiarEstadoUsuario = async (req, res) => {
     motivoRechazo,
     fechaRechazo,
     rechazadoPor,
-  } = req.body; // Extraer datos del payload
+  } = req.body;
 
   console.log(`\n=== Cambiar estado del usuario ===`);
   console.log(`UUID recibido: ${uuid}`);
   console.log('Payload recibido:', req.body);
 
   try {
-    // Buscar usuario en la base de datos
     console.log(`Buscando usuario con UUID: ${uuid}`);
     const usuario = await Usuario.findOne({ where: { uuid } });
     if (!usuario) {
@@ -481,9 +481,11 @@ const cambiarEstadoUsuario = async (req, res) => {
 
     console.log('Usuario encontrado:', usuario);
 
-    // Actualizar estado según la acción
     console.log(`Actualizando estado del usuario a: ${estado}`);
     usuario.estado = estado;
+
+    // URL del logo
+    const logoSrc = 'https://res.cloudinary.com/dtx5ziooo/image/upload/v1739288789/logo-png-sin-fondo_lyddzv.png';
 
     if (estado === 'aprobado') {
       console.log('Procesando aprobación...');
@@ -493,14 +495,45 @@ const cambiarEstadoUsuario = async (req, res) => {
       if (usuario.email) {
         console.log(`Enviando correo de aprobación a: ${usuario.email}`);
         const subject = 'Su cuenta ha sido aprobada';
-        const text = `Hola ${usuario.nombre},
 
-Su cuenta ha sido aprobada correctamente.
+        const htmlContent = `
+        <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+            <table style="width: 100%; max-width: 600px; margin: auto; border: 1px solid #ddd; border-radius: 8px; box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1); overflow: hidden;">
+                <thead>
+                    <tr>
+                        <th style="background: linear-gradient(to right, #1e3a8a, #3b82f6); color: #fff; padding: 16px; text-align: center;">
+                            <div style="display: flex; align-items: center; justify-content: center; gap: 10px;">
+                                <img src="${logoSrc}" alt="Logo Registro de Bienes" style="max-width: 80px; height: auto;" />
+                                <h1 style="margin: 0; font-size: 20px;">
+                                  ¡Su cuenta ha sido aprobada!
+                                </h1>
+                            </div>
+                        </th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td style="padding: 16px; text-align: center;">
+                            <p>Hola <strong>${usuario.nombre}</strong>,</p>
+                            <p>
+                                ¡Nos complace informarle que su cuenta ha sido <strong>aprobada</strong> exitosamente! 
+                            </p>
+                            <p>
+                                Ahora puede acceder a nuestro sistema y comenzar a utilizar nuestros servicios.
+                            </p>
+                            <p style="color: #888; font-size: 0.9em; margin-top: 20px;">
+                                Atentamente,<br>
+                                El equipo del Sistema Provincial Preventivo de Bienes Muebles Usados.
+                            </p>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+        `;
 
-Atentamente,
-El equipo de Sistema Provincial Preventivo de Registro de Bienes Muebles Usados`;
         try {
-          await enviarCorreo(usuario.email, subject, text, null);
+          await enviarCorreo(usuario.email, subject, `Hola ${usuario.nombre}, su cuenta ha sido aprobada.`, htmlContent);
           console.log(`Correo de aprobación enviado a: ${usuario.email}`);
         } catch (emailError) {
           console.error('Error al enviar correo de aprobación:', emailError);
@@ -518,32 +551,50 @@ El equipo de Sistema Provincial Preventivo de Registro de Bienes Muebles Usados`
         console.log(`Enviando correo de rechazo a: ${usuario.email}`);
         const subject = 'Su cuenta ha sido rechazada';
 
-        // Generar enlace para reenviar el registro
         const reintentarRegistroLink = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/usuarios/${usuario.uuid}/reintentar`;
 
-        const text = `Hola ${usuario.nombre},
-    
-    Lamentamos informarle que su cuenta ha sido rechazada.
-    Motivo: "${motivoRechazo}"
-    
-    Puede reenviar su solicitud haciendo clic en el siguiente enlace:
-    ${reintentarRegistroLink}
-    
-    Atentamente,
-    'El equipo del Sistema Provincial Preventivo de Registro de Bienes Muebles Usados`;
-    
-
-        const html = `
-          <p>Hola ${usuario.nombre},</p>
-          <p>Lamentamos informarle que su cuenta ha sido rechazada.</p>
-          <blockquote style="color: red;">"${motivoRechazo}"</blockquote>
-          <p>Puede reenviar su solicitud haciendo clic en el siguiente enlace:</p>
-          <a href="${reintentarRegistroLink}" style="color: blue; font-weight: bold;">Reenviar Registro</a>
-          <p>Atentamente,<br>El equipo de Bienes Muebles</p>
+        const htmlContent = `
+        <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+            <table style="width: 100%; max-width: 600px; margin: auto; border: 1px solid #ddd; border-radius: 8px; box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1); overflow: hidden;">
+                <thead>
+                    <tr>
+                        <th style="background: linear-gradient(to right, #b91c1c, #ef4444); color: #fff; padding: 16px; text-align: center;">
+                            <div style="display: flex; align-items: center; justify-content: center; gap: 10px;">
+                                <img src="${logoSrc}" alt="Logo Registro de Bienes" style="max-width: 80px; height: auto;" />
+                                <h1 style="margin: 0; font-size: 20px;">
+                                  Su cuenta ha sido rechazada
+                                </h1>
+                            </div>
+                        </th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td style="padding: 16px; text-align: center;">
+                            <p>Hola <strong>${usuario.nombre}</strong>,</p>
+                            <p style="color: red;">
+                                Lamentamos informarle que su cuenta ha sido <strong>rechazada</strong>.
+                            </p>
+                            <p style="color: red;">
+                                Motivo: "${motivoRechazo}"
+                            </p>
+                            <p>
+                                Puede reenviar su solicitud haciendo clic en el siguiente enlace:
+                            </p>
+                            <a href="${reintentarRegistroLink}" style="color: blue; font-weight: bold;">Reenviar Registro</a>
+                            <p style="color: #888; font-size: 0.9em; margin-top: 20px;">
+                                Atentamente,<br>
+                                El equipo del Sistema Provincial Preventivo de Bienes Muebles Usados.
+                            </p>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
         `;
 
         try {
-          await enviarCorreo(usuario.email, subject, text, html);
+          await enviarCorreo(usuario.email, subject, `Hola ${usuario.nombre}, su cuenta ha sido rechazada. Motivo: "${motivoRechazo}"`, htmlContent);
           console.log(`Correo de rechazo enviado a: ${usuario.email}`);
         } catch (emailError) {
           console.error('Error al enviar correo de rechazo:', emailError);
@@ -551,23 +602,19 @@ El equipo de Sistema Provincial Preventivo de Registro de Bienes Muebles Usados`
       }
     }
 
-
-    // Guardar cambios en la base de datos
-    console.log('Guardando cambios en la base de datos...');
     await usuario.save();
     console.log(`Usuario ${uuid} actualizado a estado ${estado}`);
 
-    // Responder al cliente con éxito
     return res.status(200).json({
       message: `Usuario ${estado} correctamente`,
       usuario,
     });
   } catch (error) {
-    // Capturar errores generales
     console.error('Error al cambiar estado del usuario:', error);
     return res.status(500).json({ message: 'Error interno al cambiar estado del usuario.' });
   }
 };
+
 
 
 const reintentarRegistro = async (req, res) => {

@@ -3,13 +3,14 @@ const router = express.Router();
 const { Usuario } = require('../models'); // Ajusta la ruta según tu estructura de archivos
 const jwt = require('jsonwebtoken'); // Importación necesaria
 const bcrypt = require('bcryptjs');
+
 require('dotenv').config();
 
 
 const usuarioController = require('../controllers/usuariosController');
 const { validarCampos } = require('../utils/validationUtils');
-const { verificarPermisos } = require('../middlewares/authMiddleware');
-const { verifyToken } = require('../middlewares/authJwt');
+// const { verificarPermisos } = require('../middlewares/authMiddleware');
+const { verifyToken, verificarPermisos } = require('../middlewares/authJwt');
 
 const secretKey = process.env.SECRET_KEY || 'bienes_muebles'; // Usa la clave secreta de .env
 
@@ -21,6 +22,7 @@ router.post(
   validarCampos(['nombre', 'apellido', 'email', 'password', 'tipo', 'direccion']), // Valida dirección, pero no barrio
   usuarioController.crearUsuario
 );
+
 
 
 router.post('/login', usuarioController.login);
@@ -165,20 +167,21 @@ router.get('/:uuid/rolTemporal', verifyToken, verificarPermisos(['admin', 'moder
 
 router.delete('/:uuid/rolTemporal', verifyToken, verificarPermisos(['admin']), usuarioController.removerRolTemporal);
 
-// Ruta para aprobar un usuario
 router.put('/:uuid/aprobar', verifyToken, verificarPermisos(['admin']), async (req, res) => {
-  const { uuid } = req.params;
-  const { fechaAprobacion, aprobadoPor, aprobadoPorNombre } = req.body;
+  console.log(`Solicitud de aprobación recibida para UUID: ${req.params.uuid}`);
+  console.log('Datos recibidos:', req.body);
 
-  if (!aprobadoPor || !aprobadoPorNombre) {
+  if (!req.body.aprobadoPor || !req.body.aprobadoPorNombre) {
+    console.error('Faltan datos obligatorios');
     return res.status(400).json({ message: 'Los campos aprobadoPor y aprobadoPorNombre son obligatorios.' });
   }
 
   req.body.estado = 'aprobado';
-  req.body.fechaAprobacion = fechaAprobacion || new Date().toISOString();
+  req.body.fechaAprobacion = req.body.fechaAprobacion || new Date().toISOString();
 
   await usuarioController.cambiarEstadoUsuario(req, res);
 });
+
 
 // Ruta para rechazar un usuario
 router.put('/:uuid/rechazar', verifyToken, verificarPermisos(['admin']), async (req, res) => {
@@ -198,7 +201,11 @@ router.put('/:uuid/rechazar', verifyToken, verificarPermisos(['admin']), async (
 
 
 // Ruta para obtener usuarios aprobados
-router.get('/usuarios/aprobados', verifyToken, verificarPermisos(['admin', 'moderador']), async (req, res) => {
+router.get('/usuarios/aprobados', async (req, res) => {
+  console.log('📌 Entrando a la ruta /usuarios/aprobados...');
+  console.log('🔍 Headers recibidos:', req.headers);
+  console.log('🔍 Query Params:', req.query);
+  
   req.query.estado = 'aprobado'; // Filtro correcto
   await usuarioController.obtenerUsuariosPorEstado(req, res);
 });

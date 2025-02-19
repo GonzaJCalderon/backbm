@@ -1,5 +1,4 @@
 const multer = require("multer");
-const path = require("path");
 const cloudinary = require("cloudinary").v2;
 
 // Configuración de Cloudinary
@@ -12,15 +11,20 @@ cloudinary.config({
 // Configuración de almacenamiento en memoria para Multer
 const storageFotosVenta = multer.memoryStorage();
 
-// 🛠️ Nueva configuración de Multer
+// Configuración de Multer (acepta múltiples archivos)
 const uploadFotosVenta = multer({
   storage: storageFotosVenta,
   limits: { fileSize: 5 * 1024 * 1024 }, // Límite de 5MB por archivo
-}).any(); // Permite múltiples archivos con cualquier nombre
+  fileFilter: (req, file, cb) => {
+    if (!file.mimetype.startsWith("image/")) {
+      return cb(new Error("Solo se permiten archivos de imagen."), false);
+    }
+    cb(null, true);
+  },
+}).any();
 
 // Función para subir archivos a Cloudinary
 const uploadFileToCloudinary = async (fileBuffer) => {
-  console.log("📌 Subiendo archivo a Cloudinary...");
   return new Promise((resolve, reject) => {
     const stream = cloudinary.uploader.upload_stream(
       { resource_type: "image" },
@@ -36,7 +40,7 @@ const uploadFileToCloudinary = async (fileBuffer) => {
   });
 };
 
-// Middleware de subida de fotos para venta
+// Middleware de subida de fotos para la venta
 const uploadFotosVentaMiddleware = async (req, res, next) => {
   console.log("📌 Iniciando middleware de subida de fotos para Venta...");
 
@@ -62,38 +66,39 @@ const uploadFotosVentaMiddleware = async (req, res, next) => {
         const fotoUrl = await uploadFileToCloudinary(file.buffer);
         console.log("✅ Foto subida con éxito:", fotoUrl);
 
-        // Extraemos el índice y el tipo de campo
-        const fieldName = file.fieldname;
-        const match = fieldName.match(/venta\[(\d+)\]\[(fotos|imeis)\](\[(\d+)\]\[foto\])?/);
-
-        if (match) {
-          const ventaIndex = match[1];
-          const field = match[2];
-          const imeiIndex = match[4];
-
+        // 🔹 Para fotos generales (venta[i][fotos])
+        const matchFotos = file.fieldname.match(/venta\[(\d+)\]\[fotos\]/);
+        if (matchFotos) {
+          const ventaIndex = matchFotos[1];
           if (!uploadedPhotosVenta[ventaIndex]) {
-            uploadedPhotosVenta[ventaIndex] = {};
+            uploadedPhotosVenta[ventaIndex] = { fotos: [], imeis: {} };
           }
-
-          if (field === "fotos") {
-            if (!uploadedPhotosVenta[ventaIndex][field]) {
-              uploadedPhotosVenta[ventaIndex][field] = [];
-            }
-            uploadedPhotosVenta[ventaIndex][field].push(fotoUrl);
-          } else if (field === "imeis" && imeiIndex !== undefined) {
-            if (!uploadedPhotosVenta[ventaIndex][field]) {
-              uploadedPhotosVenta[ventaIndex][field] = [];
-            }
-
-            if (!uploadedPhotosVenta[ventaIndex][field][imeiIndex]) {
-              uploadedPhotosVenta[ventaIndex][field][imeiIndex] = {};
-            }
-
-            uploadedPhotosVenta[ventaIndex][field][imeiIndex]["foto"] = fotoUrl;
-          }
-        } else {
-          console.warn("⚠️ Archivo no reconocido:", file.fieldname);
+          uploadedPhotosVenta[ventaIndex].fotos.push(fotoUrl);
+          continue;
         }
+
+        // 🔹 Para fotos de IMEIs (venta[i][imeis][j][foto])
+     // 🔹 Para fotos de IMEIs (venta[i][imeis][j][foto])
+const matchImei = file.fieldname.match(/venta\[(\d+)\]\[imeis\]\[(\d+)\]\[foto\]/);
+if (matchImei) {
+  const ventaIndex = matchImei[1];
+  const imeiIndex = matchImei[2];
+
+  if (!uploadedPhotosVenta[ventaIndex]) {
+    uploadedPhotosVenta[ventaIndex] = { fotos: [], imeis: {} };
+  }
+
+  if (!uploadedPhotosVenta[ventaIndex].imeis) {
+    uploadedPhotosVenta[ventaIndex].imeis = {};
+  }
+
+  uploadedPhotosVenta[ventaIndex].imeis[imeiIndex] = fotoUrl;
+  console.log(`✅ Foto asignada a IMEI ${imeiIndex}: ${fotoUrl}`);
+  continue;
+}
+
+
+        console.warn("⚠️ Campo no reconocido:", file.fieldname);
       }
 
       req.uploadedPhotosVenta = uploadedPhotosVenta;
@@ -106,8 +111,4 @@ const uploadFotosVentaMiddleware = async (req, res, next) => {
   });
 };
 
-module.exports = { 
-  uploadFotosVentaMiddleware, 
-  uploadFileToCloudinary, 
-  uploadFotosVenta 
-};
+module.exports = { uploadFotosVentaMiddleware, uploadFileToCloudinary, uploadFotosVenta };
