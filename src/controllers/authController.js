@@ -7,17 +7,13 @@ const config = require('../config/auth.config');
 const loginUsuario = async (req, res) => {
     const { email, password } = req.body;
 
-    // Validar campos requeridos
-    const error = validarCamposRequeridos(['email', 'password'], req.body);
-    if (error) {
-        return res.status(400).json({ message: error });
-    }
-
-    console.log('Datos recibidos en el backend:', { email, password });
+    console.log('📥 Datos recibidos en el backend:', { email, password });
 
     try {
         // Buscar usuario por email
         const user = await Usuario.findOne({ where: { email } });
+
+        console.log('🔍 Usuario encontrado en la base de datos:', user ? user.toJSON() : 'No encontrado');
 
         if (!user) {
             return res.status(401).json({ message: 'Credenciales inválidas' });
@@ -29,13 +25,17 @@ const loginUsuario = async (req, res) => {
             return res.status(401).json({ message: 'Credenciales inválidas' });
         }
 
+        console.log('🔍 Verificando rolDefinitivo:', user.rolDefinitivo);
+
+        // 🚀 Si `rolDefinitivo` es `NULL`, asignamos un valor por defecto
         if (!user.rolDefinitivo) {
-            return res.status(403).json({ message: 'No se pudo determinar el rol del usuario.' });
+            console.warn('⚠️ Usuario sin rol definido, asignando "usuario" por defecto');
+            user.rolDefinitivo = 'usuario';
         }
 
         // Construir respuesta del usuario
         const responseUser = {
-            uuid: user.uuid, // ✅ Asegurar uso de uuid
+            uuid: user.uuid,
             email: user.email,
             nombre: user.nombre,
             apellido: user.apellido,
@@ -47,20 +47,22 @@ const loginUsuario = async (req, res) => {
         // Generar token con rolDefinitivo
         const token = jwt.sign(
             {
-                uuid: user.uuid, // ✅ Se usa `uuid` en lugar de `id`
+                uuid: user.uuid,
                 email: user.email,
                 rolDefinitivo: user.rolDefinitivo // Incluye el rol en el token
             },
             config.secret,
-            { expiresIn: config.jwtExpiration } // Expiración del token
+            { expiresIn: config.jwtExpiration }
         );
 
-        console.log('Respuesta final del backend:', { usuario: responseUser, token });
+        console.log('✅ Respuesta final del backend:', { usuario: responseUser, token });
         res.json({ usuario: responseUser, token });
+
     } catch (error) {
-        console.error('Error en el backend:', error);
+        console.error('❌ Error en el backend:', error);
         res.status(500).json({ message: 'Error en el servidor', error });
     }
 };
+
 
 module.exports = { loginUsuario };

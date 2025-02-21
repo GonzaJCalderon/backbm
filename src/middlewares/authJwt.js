@@ -13,7 +13,7 @@ const catchError = (err, res) => {
   return res.status(401).json({ message: "Unauthorized!" });
 };
 
-const verifyToken = (req, res, next) => {
+const verifyToken = async (req, res, next) => {
   try {
     console.log('🟢 Verificando token...');
 
@@ -42,17 +42,36 @@ const verifyToken = (req, res, next) => {
       return res.status(400).json({ message: 'El token no contiene un UUID válido.' });
     }
 
+    // 🔥 Asegurar que `rolDefinitivo` está presente
     if (!decoded.rolDefinitivo) {
-      console.error('❌ ERROR: El token no tiene un rol asignado.');
-      return res.status(403).json({ message: 'No se pudo determinar el rol del usuario.' });
-    }
+      console.warn('⚠️ `rolDefinitivo` no está en el token, obteniendo desde BD...');
 
-    // Asignar la propiedad rolDefinitivo al objeto req.user
-    req.user = {
-      uuid: decoded.uuid,
-      rolDefinitivo: decoded.rolDefinitivo,
-      email: decoded.email
-    };
+      // Buscar al usuario en la base de datos si el token no tiene `rolDefinitivo`
+      const usuario = await Usuario.findOne({ where: { uuid: decoded.uuid } });
+
+      if (!usuario) {
+        console.error('❌ ERROR: Usuario no encontrado en la BD.');
+        return res.status(404).json({ message: 'Usuario no encontrado.' });
+      }
+
+      console.log(`✅ Usuario encontrado en la BD: ${usuario.nombre} ${usuario.apellido}, rol: ${usuario.rolDefinitivo}`);
+
+      // Si el usuario tampoco tiene rol en la BD, asignar uno por defecto
+      const rolAsignado = usuario.rolDefinitivo || 'usuario';
+      console.log(`🔄 Asignando rol por defecto: ${rolAsignado}`);
+
+      req.user = {
+        uuid: usuario.uuid,
+        rolDefinitivo: rolAsignado,
+        email: usuario.email
+      };
+    } else {
+      req.user = {
+        uuid: decoded.uuid,
+        rolDefinitivo: decoded.rolDefinitivo,
+        email: decoded.email
+      };
+    }
 
     console.log('✅ Usuario asignado en req.user:', req.user);
     next();
@@ -64,7 +83,7 @@ const verifyToken = (req, res, next) => {
 
 const verificarPermisos = (rolesPermitidos) => {
   return (req, res, next) => {
-    console.log(`🔍 Verificando permisos para:`, req.user);
+    console.log(`🔍 Verificando permisos para usuario:`, req.user);
 
     if (!req.user || !req.user.rolDefinitivo) {
       console.warn('⚠️ No se pudo determinar el rol del usuario.');
@@ -86,10 +105,9 @@ const verificarPermisos = (rolesPermitidos) => {
   };
 };
 
-
-
 const authJwt = {
   verifyToken,
   verificarPermisos
 };
+
 module.exports = authJwt;

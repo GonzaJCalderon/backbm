@@ -129,7 +129,6 @@ const crearUsuario = async (req, res) => {
 
 
 
-
 const login = async (req, res) => {
   const { email, password } = req.body;
 
@@ -145,15 +144,23 @@ const login = async (req, res) => {
       return res.status(401).json({ message: 'Contraseña incorrecta.' });
     }
 
-    const secretKey = process.env.SECRET_KEY || 'bienes_muebles';
-    const refreshSecret = process.env.REFRESH_SECRET_KEY || 'refresh_muebles';
+    console.log("🔍 Usuario encontrado en la BD:", usuario.toJSON());
+    console.log("🔍 Verificando rolDefinitivo:", usuario.rolDefinitivo);
+
+    // 🚀 Si `rolDefinitivo` es `NULL`, asignar un valor predeterminado
+    if (!usuario.rolDefinitivo) {
+      console.warn('⚠️ Usuario sin rol definido, asignando "usuario" por defecto');
+      usuario.rolDefinitivo = 'usuario';
+    }
 
     // Generar token principal (JWT) con rolDefinitivo
     const token = jwt.sign(
-      { uuid: usuario.uuid, email: usuario.email, rolDefinitivo: usuario.rolDefinitivo },
+      { uuid: usuario.uuid, email: usuario.email, rolDefinitivo: usuario.rolDefinitivo || 'usuario' },
       config.secret,
-      { expiresIn: config.jwtExpiration }
+      { expiresIn: '1h' }
     );
+    
+    
 
     // Generar refresh token
     const refreshToken = jwt.sign(
@@ -161,6 +168,9 @@ const login = async (req, res) => {
       config.secret,
       { expiresIn: config.jwtRefreshExpiration }
     );
+
+    console.log("📢 Token generado:", token);
+    console.log("📢 Token decodificado:", jwt.decode(token));
 
     // Construir objeto de dirección
     const direccion = usuario.direccion || {
@@ -170,7 +180,7 @@ const login = async (req, res) => {
       departamento: '',
     };
 
-    res.status(200).json({
+    const response = {
       usuario: {
         uuid: usuario.uuid,
         nombre: usuario.nombre,
@@ -178,13 +188,17 @@ const login = async (req, res) => {
         email: usuario.email,
         dni: usuario.dni,
         rolDefinitivo: usuario.rolDefinitivo,
-        direccion, // Incluir dirección como un objeto
+        direccion,
       },
       token,
       refreshToken,
-    });
+    };
+
+    console.log("✅ Respuesta final del backend:", JSON.stringify(response, null, 2));
+
+    res.status(200).json(response);
   } catch (error) {
-    console.error('Error en el login:', error.message);
+    console.error('❌ Error en el login:', error.message);
     res.status(500).json({ message: 'Error interno del servidor.' });
   }
 };
@@ -763,6 +777,7 @@ const obtenerUsuariosPorEstado = async (req, res) => {
     });
   }
 };
+
 
 
 
