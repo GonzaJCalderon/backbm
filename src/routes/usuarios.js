@@ -201,6 +201,7 @@ router.put('/:uuid/rechazar', verifyToken, verificarPermisos(['admin']), async (
 
 
 // Ruta para obtener usuarios aprobados
+// Ruta para obtener usuarios aprobados
 router.get('/usuarios/aprobados', async (req, res) => {
   console.log('📌 Entrando a la ruta /usuarios/aprobados...');
   console.log('🔍 Headers recibidos:', req.headers);
@@ -210,6 +211,7 @@ router.get('/usuarios/aprobados', async (req, res) => {
   await usuarioController.obtenerUsuariosPorEstado(req, res);
 });
 
+  
 
 
 // Ruta para actualizar el rol del usuario

@@ -53,26 +53,28 @@ const verifyToken = (req, res, next) => {
 // Middleware para verificar permisos de rol
 const verificarPermisos = (rolesPermitidos) => {
   return (req, res, next) => {
-    if (!req.user || !req.user.rol) {
+    console.log(`🔍 Verificando permisos para:`, req.user);
+
+    if (!req.user || !req.user.rolDefinitivo) {
       console.warn('⚠️ No se pudo determinar el rol del usuario.');
       return res.status(403).json({ message: 'No se pudo determinar el rol del usuario.' });
     }
 
-    console.log(`🔍 Token decodificado:`, req.user);
-    console.log(`🔍 Rol detectado: ${req.user.rol}`);
+    console.log(`🔍 Rol detectado: ${req.user.rolDefinitivo}`);
     console.log(`🔍 Roles permitidos: ${rolesPermitidos}`);
 
-    if (!rolesPermitidos.includes(req.user.rol)) {
-      console.error(`⛔ Acceso denegado. Rol ${req.user.rol} no está permitido.`);
+    if (!rolesPermitidos.includes(req.user.rolDefinitivo)) {
+      console.error(`⛔ Acceso denegado. Rol ${req.user.rolDefinitivo} no permitido.`);
       return res.status(403).json({
-        message: `No tienes permisos para realizar esta acción. Roles permitidos: ${rolesPermitidos.join(', ')}`,
+        message: `No tienes permisos. Roles permitidos: ${rolesPermitidos.join(', ')}`
       });
     }
 
-    console.log(`✅ Acceso permitido para el rol: ${req.user.rol}`);
+    console.log(`✅ Acceso permitido para el rol: ${req.user.rolDefinitivo}`);
     next();
   };
 };
+
 
 
 
