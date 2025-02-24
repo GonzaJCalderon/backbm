@@ -155,7 +155,13 @@ router.get('/compradores', verifyToken, verificarPermisos(['admin', 'moderador']
 
 router.get('/usuarios/pendientes', verifyToken, verificarPermisos(['admin', 'moderador']), usuarioController.obtenerUsuariosPendientes);
 
-router.get('/:uuid', verifyToken, verificarPermisos(['admin', 'moderador']), usuarioController.obtenerUsuarioPorId);
+router.get('/:uuid', async (req, res) => {
+  const { uuid } = req.params;
+  const usuario = await Usuario.findOne({ where: { uuid } });
+  if (!usuario) return res.status(404).json({ message: 'Usuario no encontrado' });
+  res.json(usuario);
+});
+
 
 router.put('/:uuid', verifyToken, verificarPermisos(['admin', 'usuario']), usuarioController.actualizarUsuario);
 
