@@ -15,6 +15,7 @@ const corsOptions = {
   origin: [
     'http://localhost:3000',
     'http://10.100.1.80:3000',
+    'http://10.100.1.80:5005', // Asegura que el frontend puede acceder al backend
     'http://10.100.1.216:9501',
   ],
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
@@ -23,9 +24,8 @@ const corsOptions = {
 };
 
 app.use(cors(corsOptions));
-
-// Manejo explícito de solicitudes OPTIONS
 app.options('*', cors(corsOptions));
+
 
 // Configuración de límites para solicitudes grandes
 app.use(express.json({ limit: '1gb' })); // Límite de 1GB para solicitudes JSON

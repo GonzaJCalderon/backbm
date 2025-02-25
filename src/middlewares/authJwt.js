@@ -1,7 +1,8 @@
 const jwt = require("jsonwebtoken");
 const config = require("../config/auth.config");
 const { TokenExpiredError } = jwt;
-const Usuario = require("../models/Usuario"); // Importa el modelo de usuario
+const { Usuario } = require('../models');
+// Importa el modelo de usuario
 
 const catchError = (err, res) => {
   if (res.headersSent) return; // Evita múltiples respuestas
