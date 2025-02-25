@@ -1,7 +1,7 @@
 const { Sequelize } = require('sequelize');
 require('dotenv').config(); // Cargar variables de entorno
 
-const isRemote = process.env.DB_ENV === 'local'; // Asegurar que usa la base remota
+const isRemote = process.env.DB_ENV === 'Remota'; // Asegurar que usa la base remota
 
 console.log('📡 Usando base de datos:', isRemote ? 'Remota' : 'Local');
 console.log('🔗 Host:', process.env.DB_HOST_REMOTE);

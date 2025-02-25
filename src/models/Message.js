@@ -11,25 +11,27 @@ module.exports = (sequelize, DataTypes) => {
       allowNull: false,
     },
     recipientUuid: {
+      type: DataTypes.UUID, // Puede ser null porque el mensaje va a los admins
+      allowNull: true,
+    },
+    assignedAdminUuid: { // Admin que toma el mensaje
       type: DataTypes.UUID,
+      allowNull: true,
+    },
+    isForAdmins: { // Si es un mensaje abierto para admins
+      type: DataTypes.BOOLEAN,
       allowNull: false,
+      defaultValue: true,
     },
     content: {
       type: DataTypes.TEXT,
       allowNull: true,
     },
-    imageUrl: {
-      type: DataTypes.STRING,
-      allowNull: true,
+    isRead: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
     },
-    // Ejemplo de definición en el modelo Message
-isRead: {
-  type: DataTypes.BOOLEAN,
-  allowNull: false,
-  defaultValue: false,
-  field: 'isRead'
-},
-
   });
 
   return Message;
