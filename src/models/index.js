@@ -24,8 +24,11 @@ const Message = MessageModel(sequelize, DataTypes);
 // 📌 Configurar relaciones de mensajes
 Usuario.hasMany(Message, { as: 'mensajesEnviados', foreignKey: 'senderUuid' });
 Usuario.hasMany(Message, { as: 'mensajesRecibidos', foreignKey: 'recipientUuid' });
+Usuario.hasMany(Message, { as: 'mensajesAsignados', foreignKey: 'assignedAdminUuid' });
 Message.belongsTo(Usuario, { as: 'sender', foreignKey: 'senderUuid' });
 Message.belongsTo(Usuario, { as: 'recipient', foreignKey: 'recipientUuid' });
+Message.belongsTo(Usuario, { as: 'assignedAdmin', foreignKey: 'assignedAdminUuid' });
+
 
 // 📌 Asociaciones entre Usuario y Transaccion
 Usuario.hasMany(Transaccion, { as: 'ventas', foreignKey: 'vendedor_uuid' });

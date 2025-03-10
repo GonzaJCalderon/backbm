@@ -244,8 +244,11 @@ const registrarVenta = async (req, res) => {
         } = bienesArray[i];
 
         // 📌 Obtener fotos subidas
-        const photosData = req.uploadedPhotosVenta?.[i] || {};
-        const fotosSubidas = photosData.fotos || [];
+        const photosData = req.uploadedPhotosVenta?.[i];
+        const fotosSubidas = (photosData && photosData.fotos) ? photosData.fotos : [];
+        
+        console.log(`📌 Fotos obtenidas para el bien ${i}:`, fotosSubidas);
+        
         const imeiFotos = photosData.imeis || {}; // 🔥 Aquí deben estar las fotos de los IMEIs
 
         console.log(`📌 Procesando bien ${i}:`, { imeis, imeiFotos });

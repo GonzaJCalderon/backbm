@@ -1,5 +1,5 @@
 module.exports = {
-  secret: "01178b1c8c8304774044d6785db4129d330e67337c350dd0155482f4a32dd149",
+  secret: process.env.JWT_SECRET || "01178b1c8c8304774044d6785db4129d330e67337c350dd0155482f4a32dd149",
   jwtExpiration: 3600, // 1 hour 3600
   jwtRefreshExpiration: 86400, // 24 hours 86400
 

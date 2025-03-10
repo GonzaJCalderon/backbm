@@ -17,6 +17,7 @@ const corsOptions = {
     'http://10.100.1.80:3000',
     'http://10.100.1.80:5005', // Asegura que el frontend puede acceder al backend
     'http://10.100.1.216:9501',
+    ''
   ],
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
   allowedHeaders: ['Content-Type', 'Authorization'],
