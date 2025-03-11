@@ -203,206 +203,158 @@ const crearBienYStock = async ({ tipo, marca, modelo, cantidad, precio, vendedor
 };
 
 
-
-
 const registrarVenta = async (req, res) => {
   try {
-    console.log("📌 Datos recibidos en el backend:", req.body);
-    console.log("📌 Fotos subidas en `req.uploadedPhotosVenta`:", req.uploadedPhotosVenta);
+    const { vendedorUuid, compradorId, ventaData } = req.body;
+    const bienesArray = JSON.parse(ventaData);
+    const fotosCargadas = req.uploadedPhotosVenta || {};
 
-    let { vendedorUuid, compradorId, ventaData } = req.body;
-
-    if (!vendedorUuid || !compradorId) {
-      return res.status(400).json({ message: "Faltan datos obligatorios: vendedorUuid o compradorId." });
-    }
-
-    let bienesArray;
-    try {
-      bienesArray = typeof ventaData === "string" ? JSON.parse(ventaData.trim()) : ventaData;
-      console.log("✅ bienesArray procesado:", bienesArray);
-      if (!Array.isArray(bienesArray)) throw new Error("El formato de ventaData es incorrecto.");
-    } catch (error) {
-      console.error("❌ Error al convertir ventaData:", ventaData, error);
-      return res.status(400).json({ message: "Error al procesar ventaData", error: error.message });
-    }
-    
+    console.log("📌 Datos de la venta recibidos:", bienesArray);
+    console.log("📸 Fotos subidas asociadas:", JSON.stringify(fotosCargadas, null, 2));
 
     const transaction = await sequelize.transaction();
 
     try {
       for (let i = 0; i < bienesArray.length; i++) {
-        const {
-          uuid,
-          tipo,
-          marca,
-          modelo,
-          descripcion,
-          precio,
-          cantidad,
-          metodoPago,
-          imeis,
-        } = bienesArray[i];
+        const bien = bienesArray[i];
+        const fotosBien = fotosCargadas[i]?.fotos || [];
+        const imeisCargados = fotosCargadas[i]?.imeis || {};
 
-        // 📌 Obtener fotos subidas
-        const photosData = req.uploadedPhotosVenta?.[i];
-        const fotosSubidas = (photosData && photosData.fotos) ? photosData.fotos : [];
-        
-        console.log(`📌 Fotos obtenidas para el bien ${i}:`, fotosSubidas);
-        
-        const imeiFotos = photosData.imeis || {}; // 🔥 Aquí deben estar las fotos de los IMEIs
+        console.log(`📌 Procesando bien #${i + 1}:`, bien);
+        console.log(`📸 Fotos asociadas al bien:`, fotosBien);
 
-        console.log(`📌 Procesando bien ${i}:`, { imeis, imeiFotos });
+        let bienExistente;
 
-        let bien;
-        if (!uuid) {
-          // 📌 Crear bien nuevo
-          bien = await Bien.create({
-            uuid: uuidv4(),
-            tipo,
-            marca,
-            modelo,
-            descripcion: descripcion || "Sin descripción",
-            precio: parseFloat(precio) || 0,
-            fotos: fotosSubidas,
-            propietario_uuid: vendedorUuid,
-          }, { transaction });
+        // 1️⃣ Verificar si el bien ya existe en la BD
+        if (bien.uuid) {
+          bienExistente = await Bien.findOne({ where: { uuid: bien.uuid }, transaction });
 
-          console.log(`✅ Bien creado con UUID: ${bien.uuid}`);
-
-          // 📌 CREAR STOCK PARA EL VENDEDOR SI EL BIEN ES NUEVO
-          await Stock.create({
-            uuid: uuidv4(),
-            bien_uuid: bien.uuid,
-            cantidad: cantidad,
-            usuario_uuid: vendedorUuid,
-          }, { transaction });
-
-          console.log(`✅ Stock inicial agregado: ${cantidad} unidades para el vendedor`);
-        } else {
-          // 📌 Buscar bien existente
-          bien = await Bien.findOne({
-            where: { uuid },
-            include: [{ model: DetallesBien, as: "detalles" }],
-            transaction,
-          });
-
-          if (!bien) {
-            throw new Error(`No se encontró el bien registrado con uuid ${uuid}`);
+          if (!bienExistente) {
+            throw new Error(`❌ Bien con UUID ${bien.uuid} no encontrado.`);
           }
+
+          // 2️⃣ Verificar stock disponible
+          const stockExistente = await Stock.findOne({ where: { bien_uuid: bien.uuid }, transaction });
+
+          if (!stockExistente || stockExistente.cantidad < bien.cantidad) {
+            throw new Error(`❌ Stock insuficiente para el bien: ${bienExistente.modelo}`);
+          }
+
+          // 3️⃣ Restar stock y actualizar bien
+          stockExistente.cantidad -= bien.cantidad;
+          await stockExistente.save({ transaction });
+
+          if (fotosBien.length > 0) {
+            bienExistente.fotos = [...(bienExistente.fotos || []), ...fotosBien];
+            await bienExistente.save({ transaction });
+            console.log(`✅ Fotos añadidas al bien existente (${bienExistente.uuid}):`, bienExistente.fotos);
+          }
+        } else {
+          // 4️⃣ Crear un nuevo bien si no existe
+          const nuevoUuid = uuidv4();
+
+          bienExistente = await Bien.create(
+            {
+              uuid: nuevoUuid,
+              tipo: bien.tipo,
+              marca: bien.marca,
+              modelo: bien.modelo,
+              descripcion: bien.descripcion,
+              precio: parseFloat(bien.precio),
+              propietario_uuid: vendedorUuid,
+              fotos: fotosBien,
+            },
+            { transaction }
+          );
+
+          console.log(`✅ Nuevo bien creado (${nuevoUuid}):`, bienExistente);
+
+          await Stock.create(
+            {
+              bien_uuid: nuevoUuid,
+              cantidad: 0,
+              usuario_uuid: vendedorUuid,
+            },
+            { transaction }
+          );
         }
 
-        // 📌 Procesar IMEIs (para teléfonos móviles)
-        let imeisProcesados = [];
-        if (tipo.toLowerCase() === "teléfono movil") {
-          for (let j = 0; j < imeis.length; j++) {
-            const { imei, precio } = imeis[j];
-        
-            // 🔥 Capturamos la foto del IMEI desde el middleware
-            let foto = req.uploadedPhotosVenta?.[i]?.imeis?.[j] || null;
-        
-            console.log(`✅ IMEI ${imei} - Foto asignada: ${foto || "❌ No encontrada"}`);
-        
-            // ❌ Si el IMEI ya existe en `DetallesBien`, no lo volvemos a insertar
-            const imeiDuplicado = await DetallesBien.findOne({
-              where: { identificador_unico: imei },
+        // 5️⃣ Procesar IMEIs (si el bien tiene identificadores únicos)
+        const imeisVendidos = [];
+
+        if (bien.imeis && bien.imeis.length > 0) {
+          for (let j = 0; j < bien.imeis.length; j++) {
+            const imeiObj = bien.imeis[j];
+            const imeiFotoUrl = imeisCargados[j] || imeiObj.foto || null;
+
+            let detalleImei = await DetallesBien.findOne({
+              where: {
+                identificador_unico: imeiObj.imei,
+                bien_uuid: bienExistente.uuid,
+              },
               transaction,
             });
-        
-            if (!imeiDuplicado) {
-              await DetallesBien.create({
-                uuid: uuidv4(),
-                bien_uuid: bien.uuid,
-                identificador_unico: imei,
-                estado: "disponible",
-                foto: foto, // 🔥 Guardamos la foto en la base de datos
-              }, { transaction });
-        
-              console.log(`✅ IMEI ${imei} guardado con foto: ${foto}`);
+
+            if (!detalleImei) {
+              detalleImei = await DetallesBien.create(
+                {
+                  bien_uuid: bienExistente.uuid,
+                  identificador_unico: imeiObj.imei,
+                  estado: "vendido",
+                  foto: imeiFotoUrl,
+                },
+                { transaction }
+              );
             } else {
-              console.log(`⚠️ IMEI ${imei} ya existe, se omite.`);
+              detalleImei.estado = "vendido";
+              detalleImei.foto = imeiFotoUrl || detalleImei.foto;
+              await detalleImei.save({ transaction });
             }
 
-            imeisProcesados.push({ imei, precio, foto });
+            imeisVendidos.push({
+              imei: imeiObj.imei,
+              foto: detalleImei.foto,
+              precio: imeiObj.precio,
+            });
+
+            console.log(`✅ IMEI procesado [${j}]:`, imeiObj.imei, "Foto:", imeiFotoUrl);
           }
         }
 
-        // 📌 Verificar y actualizar stock
-        const stockVendedor = await Stock.findOne({
-          where: { bien_uuid: bien.uuid, usuario_uuid: vendedorUuid },
-          transaction,
-        });
-
-        if (!stockVendedor || stockVendedor.cantidad < cantidad) {
-          throw new Error(`Stock insuficiente para el bien: ${tipo} ${marca} ${modelo}`);
-        }
-
-        // Descontar stock del vendedor
-        stockVendedor.cantidad -= cantidad;
-        await stockVendedor.save({ transaction });
-
-        // Transferir stock al comprador
-        await Stock.create({
-          uuid: uuidv4(),
-          bien_uuid: bien.uuid,
-          cantidad: cantidad,
-          usuario_uuid: compradorId,
-        }, { transaction });
-
-        console.log(`✅ Stock transferido: ${cantidad} unidades a ${compradorId}`);
-
-        // 📌 Actualizar el propietario del bien en la BD
-        await Bien.update(
+        // 6️⃣ Crear la transacción de venta
+        await Transaccion.create(
           {
-            propietario_uuid: compradorId,
-            fotos: bien.fotos?.length > 0 ? bien.fotos : fotosSubidas, // 🔥 Mantener fotos existentes o asignar nuevas
-            updatedAt: new Date(), // 🔥 Forzar actualización
+            uuid: uuidv4(),
+            fecha: new Date(),
+            monto: parseFloat(bien.precio) * bien.cantidad,
+            precio: parseFloat(bien.precio),
+            cantidad: bien.cantidad,
+            metodoPago: bien.metodoPago || "efectivo",
+            vendedor_uuid: vendedorUuid,
+            comprador_uuid: compradorId,
+            bien_uuid: bienExistente.uuid,
+            fotos: fotosBien,
+            imeis: imeisVendidos,
           },
-          { where: { uuid: bien.uuid }, transaction }
+          { transaction }
         );
 
-        // 📌 Registrar la transacción
-        await Transaccion.create({
-          uuid: uuidv4(),
-          cantidad,
-          metodoPago: metodoPago || "efectivo",
-          comprador_uuid: compradorId,
-          vendedor_uuid: vendedorUuid,
-          bien_uuid: bien.uuid,
-          precio: tipo.toLowerCase() === "teléfono movil"
-            ? imeisProcesados.reduce((sum, obj) => sum + parseFloat(obj.precio || 0), 0)
-            : parseFloat(precio) || 0,
-          imeis: JSON.stringify(imeisProcesados) || null,
-          fotos: fotosSubidas,
-        }, { transaction });
-
-        console.log(`✅ Transacción registrada con ${cantidad} unidades de ${tipo}`);
+        console.log(`✅ Transacción registrada para el bien ${bienExistente.uuid}`);
       }
 
       await transaction.commit();
-      return res.status(201).json({ message: "Venta registrada correctamente." });
 
+      return res.status(201).json({ success: true, message: "✅ Venta registrada correctamente." });
     } catch (error) {
       await transaction.rollback();
-      console.error("❌ Error en la transacción, iniciando rollback:", error);
-      return res.status(500).json({ message: "Error en la venta.", error: error.message });
+      console.error("❌ Error en la transacción:", error);
+      return res.status(500).json({ message: "❌ Error en la venta.", error: error.message });
     }
   } catch (error) {
-    console.error("❌ Error general en la venta:", error);
-    return res.status(500).json({ message: "Error interno del servidor." });
+    console.error("❌ Error general:", error);
+    return res.status(500).json({ message: "❌ Error interno del servidor." });
   }
 };
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
