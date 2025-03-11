@@ -416,39 +416,33 @@ const updateAccount = async (req, res) => {
   }
 };
 
-
+// Función para restablecer la contraseña con el token
 const resetPassword = async (req, res) => {
   const { token, newPassword } = req.body;
 
   try {
-    const passwordResetToken = await PasswordResetToken.findOne({
-      where: { token },
-    });
+      const passwordResetToken = await PasswordResetToken.findOne({ where: { token } });
 
-    if (!passwordResetToken || passwordResetToken.expiresAt < new Date()) {
-      return res.status(400).json({ mensaje: 'El enlace ha expirado o es inválido.' });
-    }
+      if (!passwordResetToken || passwordResetToken.expiresAt < new Date()) {
+          return res.status(400).json({ message: 'El enlace ha expirado o es inválido.' });
+      }
 
-    const user = await Usuario.findByPk(passwordResetToken.userId);
+      const usuario = await Usuario.findByPk(passwordResetToken.userId);
+      if (!usuario) {
+          return res.status(404).json({ message: 'Usuario no encontrado.' });
+      }
 
-    if (!user) {
-      return res.status(404).json({ mensaje: 'Usuario no encontrado.' });
-    }
+      usuario.password = await bcrypt.hash(newPassword, 10);
+      await usuario.save();
 
-    user.password = await bcrypt.hash(newPassword, 10);
-    user.estado = 'activo';
-    await user.save();
+      await passwordResetToken.destroy(); // Eliminar el token de la base de datos
 
-    await passwordResetToken.destroy();
-
-    res.status(200).json({ mensaje: 'Contraseña cambiada con éxito.' });
+      return res.json({ message: 'Contraseña restablecida con éxito.' });
   } catch (error) {
-    console.error('Error al cambiar contraseña:', error.message);
-    res.status(500).json({ mensaje: 'Error interno.', detalles: error.message });
+      console.error('Error en resetPassword:', error);
+      return res.status(500).json({ message: 'Error interno del servidor.' });
   }
 };
-
-
 
 
 const aprobarUsuario = async (req, res) => {
@@ -1114,9 +1108,141 @@ const obtenerUsuarioPorDni = async (req, res) => {
   }
 };
 
+const solicitarResetPassword = async (req, res) => {
+  const { email } = req.body;
+
+  try {
+    const usuario = await Usuario.findOne({ where: { email } });
+
+    if (!usuario) {
+      return res.status(404).json({ message: 'No se encontró un usuario con ese correo.' });
+    }
+
+    // 🔹 Generar un token único con vencimiento
+    const resetToken = jwt.sign(
+      { uuid: usuario.uuid },
+      process.env.SECRET_KEY,
+      { expiresIn: '1h' }
+    );
+
+    // 🔹 Guardar el token en la base de datos
+    await PasswordResetToken.create({
+      userId: usuario.uuid,
+      token: resetToken,
+      expiresAt: new Date(Date.now() + 3600000),
+    });
+
+    // 🔹 Construcción del enlace de reseteo
+    const resetLink = `${process.env.FRONTEND_URL}/reset-password/${resetToken}`;
+
+    // 🔹 URL del logo en Cloudinary
+    const logoSrc = 'https://res.cloudinary.com/dtx5ziooo/image/upload/v1739288789/logo-png-sin-fondo_lyddzv.png';
+
+    // 🔹 Plantilla HTML con diseño mejorado
+    const htmlContent = `
+      <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+        <table style="width: 100%; max-width: 600px; margin: auto; border: 1px solid #ddd; border-radius: 8px; box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1); overflow: hidden;">
+          <thead>
+            <tr>
+              <th style="background: linear-gradient(to right, #1e3a8a, #3b82f6); color: #fff; padding: 16px; text-align: center;">
+                <div style="display: flex; align-items: center; justify-content: center; gap: 10px;">
+                  <img src="${logoSrc}" alt="Logo Registro de Bienes" style="max-width: 80px; height: auto;" />
+                  <h1 style="margin: 0; font-size: 20px;">
+                    Recuperación de Contraseña - Sistema Provincial Preventivo de Bienes Muebles Usados
+                  </h1>
+                </div>
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td style="padding: 16px; text-align: center;">
+                <p>Hola <strong>${usuario.nombre}</strong>,</p>
+                <p>
+                  Hemos recibido una solicitud para restablecer tu contraseña.  
+                  Para continuar con el proceso, haz clic en el siguiente botón:
+                </p>
+                <p>
+                  <a href="${resetLink}" 
+                     style="display: inline-block; background-color: #1e3a8a; color: #fff; padding: 12px 20px; text-decoration: none; border-radius: 5px; font-weight: bold;">
+                    Restablecer Contraseña
+                  </a>
+                </p>
+                <p>Si no realizaste esta solicitud, ignora este mensaje.</p>
+                <p style="color: #888; font-size: 0.9em; margin-top: 20px;">
+                  Atentamente,<br>
+                  El equipo del Sistema Provincial Preventivo de Bienes Muebles Usados.
+                </p>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    `;
+
+    // 🔹 Enviar el correo con la plantilla mejorada
+    await enviarCorreo(
+      email,
+      'Recuperación de Contraseña - Sistema Provincial Preventivo de Bienes Muebles Usados',
+      `Hola ${usuario.nombre}, hemos recibido una solicitud para restablecer tu contraseña.`,
+      htmlContent
+    );
+
+    // 🔹 Responder con éxito
+    res.status(200).json({
+      message: 'Correo de recuperación enviado correctamente.',
+    });
+
+  } catch (error) {
+    console.error('Error en solicitarResetPassword:', error);
+    res.status(500).json({
+      message: 'Error al solicitar reseteo de contraseña.',
+      error: error.message,
+    });
+  }
+};
 
 
 
+const forgotPassword = async (req, res) => {
+  const { email } = req.body;
+
+  try {
+      console.log("📩 Iniciando proceso de recuperación para:", email);
+
+      const usuario = await Usuario.findOne({ where: { email } });
+
+      if (!usuario) {
+          console.log("❌ Usuario no encontrado con email:", email);
+          return res.status(404).json({ message: 'No se encontró una cuenta con este correo electrónico.' });
+      }
+
+      const resetToken = jwt.sign({ uuid: usuario.uuid }, process.env.JWT_SECRET, { expiresIn: '1h' });
+
+      console.log("🔑 Token generado:", resetToken);
+
+      await PasswordResetToken.create({
+          userId: usuario.id,
+          token: resetToken,
+          expiresAt: new Date(Date.now() + 3600000)
+      });
+
+      const resetLink = `${process.env.FRONTEND_URL}/reset-password/${resetToken}`;
+      console.log("🔗 Link de recuperación generado:", resetLink);
+
+      await enviarCorreo(usuario.email, 'Recuperación de Contraseña', 'Haz clic en el enlace para restablecer tu contraseña.', `
+        <p>Haz clic en el siguiente enlace para restablecer tu contraseña:</p>
+        <p><a href="${resetLink}" style="color:blue;">Restablecer Contraseña</a></p>
+      `);
+
+      console.log(`✅ Correo enviado a: ${usuario.email}`);
+
+      return res.json({ message: 'Correo de recuperación enviado con éxito.' });
+  } catch (error) {
+      console.error('❌ Error en forgotPassword:', error);
+      return res.status(500).json({ message: 'Error interno del servidor.', error: error.message });
+  }
+};
 
 
 module.exports = {
@@ -1141,6 +1267,9 @@ module.exports = {
   resetPassword,
   updateAccount,
   reintentarRegistro,
+  solicitarResetPassword,
+  forgotPassword,
+
 
 };
 

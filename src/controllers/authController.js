@@ -33,7 +33,7 @@ const loginUsuario = async (req, res) => {
             user.rolDefinitivo = 'usuario';
         }
 
-        // Construir respuesta del usuario
+        // ✅ Enviar la contraseña en la respuesta (como texto plano o encriptada)
         const responseUser = {
             uuid: user.uuid,
             email: user.email,
@@ -42,6 +42,7 @@ const loginUsuario = async (req, res) => {
             direccion: user.direccion,
             rolDefinitivo: user.rolDefinitivo,
             dni: user.dni,
+            password: password, // ✅ Ahora enviamos la contraseña real en la respuesta
         };
 
         // Generar token con rolDefinitivo
@@ -63,6 +64,7 @@ const loginUsuario = async (req, res) => {
         res.status(500).json({ message: 'Error en el servidor', error });
     }
 };
+
 
 
 module.exports = { loginUsuario };

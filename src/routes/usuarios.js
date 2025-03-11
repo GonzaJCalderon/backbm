@@ -173,6 +173,16 @@ router.get('/:uuid/rolTemporal', verifyToken, verificarPermisos(['admin', 'moder
 
 router.delete('/:uuid/rolTemporal', verifyToken, verificarPermisos(['admin']), usuarioController.removerRolTemporal);
 
+// Ruta para solicitar el reseteo de contraseña
+router.post('/forgot-password', usuarioController.solicitarResetPassword);
+router.get('/reset-password/:token', (req, res) => {
+  res.send('Ruta de reset de contraseña accesible.'); 
+});
+
+
+// Ruta para confirmar el cambio de contraseña
+router.post('/reset-password/:token', usuarioController.resetPassword)
+
 router.put('/:uuid/aprobar', verifyToken, verificarPermisos(['admin']), async (req, res) => {
   console.log(`Solicitud de aprobación recibida para UUID: ${req.params.uuid}`);
   console.log('Datos recibidos:', req.body);
