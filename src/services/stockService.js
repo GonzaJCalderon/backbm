@@ -5,7 +5,6 @@ const { Op } = require('sequelize');
 
 const handleServiceError = (error, customMessage) => {
   const message = customMessage ? `${customMessage}: ${error.message}` : error.message;
-  console.error(message);
   throw new Error(message);
 };
 
@@ -151,7 +150,7 @@ const existeBien = async ({ tipo, marca, modelo }, transaction = null) => {
         modelo,
       },
       include: [
-        { model: Stock, as: 'stock' },
+        { model: Stock, as: 'stocks' },
         { model: DetallesBien, as: 'detalles' },
       ],
       transaction,

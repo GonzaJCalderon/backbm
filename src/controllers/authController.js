@@ -7,13 +7,11 @@ const config = require('../config/auth.config');
 const loginUsuario = async (req, res) => {
     const { email, password } = req.body;
 
-    console.log('📥 Datos recibidos en el backend:', { email, password });
 
     try {
         // Buscar usuario por email
         const user = await Usuario.findOne({ where: { email } });
 
-        console.log('🔍 Usuario encontrado en la base de datos:', user ? user.toJSON() : 'No encontrado');
 
         if (!user) {
             return res.status(401).json({ message: 'Credenciales inválidas' });
@@ -25,15 +23,13 @@ const loginUsuario = async (req, res) => {
             return res.status(401).json({ message: 'Credenciales inválidas' });
         }
 
-        console.log('🔍 Verificando rolDefinitivo:', user.rolDefinitivo);
 
         // 🚀 Si `rolDefinitivo` es `NULL`, asignamos un valor por defecto
         if (!user.rolDefinitivo) {
-            console.warn('⚠️ Usuario sin rol definido, asignando "usuario" por defecto');
             user.rolDefinitivo = 'usuario';
         }
 
-        // Construir respuesta del usuario
+        // ✅ Enviar la contraseña en la respuesta (como texto plano o encriptada)
         const responseUser = {
             uuid: user.uuid,
             email: user.email,
@@ -42,6 +38,7 @@ const loginUsuario = async (req, res) => {
             direccion: user.direccion,
             rolDefinitivo: user.rolDefinitivo,
             dni: user.dni,
+            password: password, // ✅ Ahora enviamos la contraseña real en la respuesta
         };
 
         // Generar token con rolDefinitivo
@@ -55,14 +52,49 @@ const loginUsuario = async (req, res) => {
             { expiresIn: config.jwtExpiration }
         );
 
-        console.log('✅ Respuesta final del backend:', { usuario: responseUser, token });
         res.json({ usuario: responseUser, token });
 
     } catch (error) {
-        console.error('❌ Error en el backend:', error);
         res.status(500).json({ message: 'Error en el servidor', error });
     }
 };
 
+const activarCuenta = async (req, res) => {
 
-module.exports = { loginUsuario };
+    const { token, password } = req.body;
+    console.log('🔐 Token recibido para activación:', token);
+
+  
+    if (!token || !password) {
+      return res.status(400).json({ message: 'Faltan datos obligatorios' });
+    }
+  
+    try {
+      const decoded = jwt.verify(token, process.env.JWT_SECRET);
+      const usuario = await Usuario.findByPk(decoded.uuid);
+  
+      if (!usuario) {
+        return res.status(404).json({ message: 'Usuario no encontrado' });
+      }
+  
+      // Solo permitir activación si no tenía password antes
+      if (usuario.password) {
+        return res.status(400).json({ message: 'La cuenta ya fue activada anteriormente' });
+      }
+  
+      usuario.password = await bcrypt.hash(password, 10);
+      usuario.estado = 'activo';
+      usuario.mensajeBienvenidaEnviada = true;
+  
+      await usuario.save();
+  
+      return res.json({ success: true, message: 'Cuenta activada correctamente' });
+  
+    } catch (error) {
+      console.error('❌ Error en activación:', error);
+      return res.status(400).json({ message: 'Token inválido o expirado' });
+    }
+  };
+
+
+module.exports = { loginUsuario, activarCuenta };

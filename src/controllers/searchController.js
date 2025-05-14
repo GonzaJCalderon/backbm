@@ -1,90 +1,132 @@
 const { Op } = require("sequelize");
-const { Usuario,  Bien } = require("../models"); // ✅ Asegura que está importado correctamente
+const { Usuario, Bien, DetallesBien } = require("../models");
 
+// 🧠 Helper para construir filtros dinámicos (usuarios)
+const buildUserFilters = (query) => {
+  const filters = [];
+  const campos = ['nombre', 'apellido', 'email', 'dni', 'cuit'];
 
-const searchAll = async (req, res) => {
-    console.log("🟡 Parámetros recibidos en la búsqueda:", req.query); // 🔥 Verifica qué llega
-
-    const { query, tipo, marca, modelo, nombre, apellido, email, dni, cuit, direccion, page = 1, limit = 10 } = req.query;
-
-    try {
-        if (!query && !tipo && !marca && !modelo && !nombre && !apellido && !email && !dni && !cuit && !direccion) {
-            return res.status(400).json({ message: 'Debe proporcionar al menos un criterio de búsqueda.' });
-        }
-
-        const userFilters = {};
-        if (nombre) userFilters.nombre = { [Op.iLike]: `%${nombre}%` };
-        if (apellido) userFilters.apellido = { [Op.iLike]: `%${apellido}%` };
-        if (email) userFilters.email = { [Op.iLike]: `%${email}%` };
-        if (dni) userFilters.dni = { [Op.iLike]: `%${dni}%` };
-        if (cuit) userFilters.cuit = { [Op.iLike]: `%${cuit}%` };
-        if (direccion) userFilters.direccion = { [Op.iLike]: `%${direccion}%` };
-
-        console.log("🟡 Filtros para usuarios:", userFilters); // 🔥 Verifica qué filtros se están aplicando
-
-        const usuarios = await Usuario.findAndCountAll({
-            where: userFilters,
-            limit: parseInt(limit),
-            offset: (page - 1) * limit,
-        });
-
-        const bienesFilters = {
-            [Op.or]: [
-                { tipo: { [Op.iLike]: `%${tipo || query || ''}%` } },
-                { marca: { [Op.iLike]: `%${marca || query || ''}%` } },
-                { modelo: { [Op.iLike]: `%${modelo || query || ''}%` } },
-                { descripcion: { [Op.iLike]: `%${query || ''}%` } },
-            ],
-        };
-
-        console.log("🟡 Filtros para bienes:", bienesFilters); // 🔥 Verifica los filtros para bienes
-
-        const bienes = await Bien.findAndCountAll({
-            where: bienesFilters,
-            limit: parseInt(limit),
-            offset: (page - 1) * limit,
-        });
-
-        console.log("✅ Usuarios encontrados:", usuarios.count);
-        console.log("✅ Bienes encontrados:", bienes.count);
-
-        res.status(200).json({
-            usuarios: {
-                total: usuarios.count,
-                results: usuarios.rows,
-            },
-            bienes: {
-                total: bienes.count,
-                results: bienes.rows,
-            },
-        });
-
-    } catch (error) {
-        console.error('❌ Error en la búsqueda:', error.message);
-        res.status(500).json({ message: 'Error en la búsqueda', error: error.message });
+  campos.forEach((campo) => {
+    if (query[campo]) {
+      filters.push({ [campo]: { [Op.iLike]: `%${query[campo].trim()}%` } });
     }
+  });
+
+  return filters.length > 0 ? { [Op.and]: filters } : {};
 };
 
-searchUsers = async (req, res) => {
-    try {
-      const { query } = req.query;
-      if (!query) return res.status(400).json({ message: "Debes ingresar un nombre o apellido." });
-  
-      const users = await Usuario.findAll({
+// 🔍 Búsqueda general por categoría
+const searchAll = async (req, res) => {
+  const { term, category, page = 1, limit = 10 } = req.query;
+
+  if (!term || !category) {
+    return res.status(400).json({ message: 'Debes proporcionar término y categoría.' });
+  }
+
+  const offset = (parseInt(page) - 1) * parseInt(limit);
+
+  try {
+    if (category === 'usuarios') {
+      const usuarios = await Usuario.findAndCountAll({
         where: {
           [Op.or]: [
-            { nombre: { [Op.iLike]: `%${query}%` } },
-            { apellido: { [Op.iLike]: `%${query}%` } }
-          ]
+            { nombre: { [Op.iLike]: `%${term}%` } },
+            { apellido: { [Op.iLike]: `%${term}%` } },
+            { email: { [Op.iLike]: `%${term}%` } },
+            { dni: { [Op.iLike]: `%${term}%` } },
+          ],
         },
-        attributes: ["uuid", "nombre", "apellido"]
+        limit: parseInt(limit),
+        offset,
       });
-  
-      res.json(users);
-    } catch (error) {
-      console.error("❌ Error buscando usuarios:", error);
-      res.status(500).json({ message: "Error en la búsqueda de usuarios." });
-    }
-  };
 
-module.exports = { searchAll, searchUsers };
+      return res.json({ usuarios });
+    }
+
+    if (category === 'bienes') {
+      const bienes = await Bien.findAndCountAll({
+        where: {
+          [Op.or]: [
+            { tipo: { [Op.iLike]: `%${term}%` } },
+            { marca: { [Op.iLike]: `%${term}%` } },
+            { modelo: { [Op.iLike]: `%${term}%` } },
+            { descripcion: { [Op.iLike]: `%${term}%` } },
+          ],
+        },
+        include: [
+          {
+            model: DetallesBien,
+            as: 'detalles',
+            required: false,
+            where: {
+              identificador_unico: {
+                [Op.iLike]: `%${term}%`
+              }
+            }
+          }
+        ],
+        limit: parseInt(limit),
+        offset,
+      });
+
+      if (bienes.count === 0) {
+        const bienesPorIMEI = await Bien.findAndCountAll({
+          include: [
+            {
+              model: DetallesBien,
+              as: 'detalles',
+              required: true,
+              where: {
+                identificador_unico: {
+                  [Op.iLike]: `%${term}%`
+                }
+              }
+            }
+          ],
+          limit: parseInt(limit),
+          offset,
+        });
+
+        return res.json({ bienes: bienesPorIMEI });
+      }
+
+      return res.json({ bienes });
+    }
+
+    return res.status(400).json({ message: 'Categoría no válida.' });
+
+  } catch (error) {
+    console.error("🔥 Error en búsqueda:", error);
+    return res.status(500).json({ message: 'Error interno del servidor.', error: error.message });
+  }
+};
+
+// 🔍 Búsqueda exclusiva de usuarios con múltiples filtros
+const searchUsers = async (req, res) => {
+  try {
+    const { page = 1, limit = 20 } = req.query;
+
+    const offset = (parseInt(page) - 1) * parseInt(limit);
+
+    const whereClause = buildUserFilters(req.query);
+
+    const usuarios = await Usuario.findAndCountAll({
+      where: whereClause,
+      attributes: ["uuid", "nombre", "apellido", "email", "dni", "rol", "cuit"],
+      limit: parseInt(limit),
+      offset,
+      order: [["apellido", "ASC"]],
+    });
+
+    res.json({ usuarios });
+
+  } catch (error) {
+    console.error("❌ Error en búsqueda de usuarios:", error);
+    res.status(500).json({ message: "Error en la búsqueda de usuarios.", error: error.message });
+  }
+};
+
+module.exports = {
+  searchAll,
+  searchUsers,
+};

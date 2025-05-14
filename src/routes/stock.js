@@ -21,7 +21,6 @@ router.put('/actualizar-stock', verifyToken, verificarPermisos(['administrador',
       bienActualizado,
     });
   } catch (error) {
-    console.error('Error al actualizar el stock:', error.message);
     res.status(500).json({
       message: 'Error al actualizar el stock',
       detalles: error.message,

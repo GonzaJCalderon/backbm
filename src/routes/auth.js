@@ -1,14 +1,14 @@
 require('dotenv').config(); // Carga las variables de entorno desde el archivo .env
 const express = require('express');
 const bcrypt = require('bcryptjs');
-const { Usuario } = require('../models/Usuario'); // Ajusta el path según tu estructura
-const { loginUsuario } = require('../controllers/authController'); // Asegúrate de que esta ruta es correcta
+const { Usuario } = require('../models'); // ✅ Asegurate de que la ruta es correcta
+
+const { loginUsuario, activarCuenta } = require('../controllers/authController'); // Asegúrate de que esta ruta es correcta
 const { validarCamposRequeridos } = require('../utils/validationUtils'); // Función para validar campos requeridos
 const router = express.Router();
 
 // Verificar que la clave JWT esté configurada
 if (!process.env.SECRET_KEY) {
-    console.error('SECRET_KEY no configurado. Revisa tu archivo .env.');
     process.exit(1);
 }
 
@@ -32,12 +32,15 @@ router.post('/register', async (req, res) => {
         const newUser = await Usuario.create({ email, password: hashedPassword });
         res.status(201).json({ message: 'Usuario registrado con éxito' });
     } catch (error) {
-        console.error('Error en el registro:', error);
         res.status(500).json({ message: 'Error registrando usuario', error: error.message });
     }
 });
 
 // Ruta de login
 router.post('/login', loginUsuario);
+
+// POST /auth/activar-cuenta
+// POST /auth/activar-cuenta
+router.post('/activar-cuenta', activarCuenta); 
 
 module.exports = router;

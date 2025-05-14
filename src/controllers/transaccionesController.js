@@ -1,11 +1,22 @@
 // src/controllers/transaccionesController.js
-const { sequelize, Bien, Stock, Usuario, Transaccion, DetallesBien } = require('../models');
+const { validate: isUuid } = require('uuid');
+
+const { sequelize, Bien, Stock, Usuario, Transaccion, DetallesBien, Message, Empresa, TransaccionDetalle } = require('../models');
+
+const { crearUsuarioPorTercero } = require('../services/usuarioService'); // 👈 Importar helper
 const { crearBien } = require('../controllers/bienesController'); // Asegúrate de usar la ruta correcta
 const { Op } = require('sequelize');
 
 const { actualizarStock, verificarStock, existeBien,verificarYActualizarStockVendedor  } = require('../services/stockService');
+const { notificarAdministradorInternamente } = require('../services/notficacionesService');
+
 const { uploadFileToCloudinary } = require('../middlewares/uploadFotos');
 const { v4: uuidv4 } = require('uuid');
+const { validarExistenciaYPropiedadDeImei, validarYOcrearImeiSiNoExiste} = require('../services/imeiService');
+
+
+
+
 
 
 
@@ -14,160 +25,603 @@ const cloudinary = require('cloudinary').v2;
 
 
 
+const SYSTEM_UUID = '00000000-0000-0000-0000-000000000000';
+
+
 // Configura Cloudinary (asegúrate de reemplazar con tus credenciales reales)
 cloudinary.config({
   cloud_name: 'dtx5ziooo',
   api_key: '154721198775314',
   api_secret: '4HXf6T4SIh_Z5RjmeJtmM6hEYdk',
 });
+// 🔧 Para limpiar objetos anidados con [Object: null prototype]
+function cleanObjectDeep(input) {
+  if (Array.isArray(input)) {
+    return input.map(cleanObjectDeep);
+  } else if (input && typeof input === 'object') {
+    const clean = {};
+    for (const key in input) {
+      clean[key] = cleanObjectDeep(input[key]);
+    }
+    return clean;
+  }
+  return input;
+}
 
-const registrarCompra = async (req, res) => {
+
+
+// 🔧 Utilidad interna
+const notificarAdminSistema = async (contenido, transaction = null) => {
   try {
-    console.log("📌 Token decodificado:", req.user);
-    console.log("📌 req.body antes de procesar:", req.body);
-
-    // Extraer el vendedorId (en nivel raíz)
-    const { vendedorId } = req.body;
-    if (!vendedorId) {
-      return res.status(400).json({ message: "Faltan datos del vendedor." });
-    }
-
-    // Normalizar bienes: si no es un array, parsear el JSON
-    const bienesArray = Array.isArray(req.body.bienes)
-      ? req.body.bienes
-      : JSON.parse(req.body.bienes || '[]');
-
-    console.log("📌 Bienes normalizados:", bienesArray);
-
-    // Obtener las fotos subidas (organizadas por índice) del middleware
-    const uploadedPhotos = req.uploadedPhotos || {};
-    console.log("📌 Fotos procesadas:", uploadedPhotos);
-
-    if (!bienesArray.length) {
-      return res.status(400).json({ message: "No se enviaron bienes en la compra." });
-    }
-
-    const transaction = await sequelize.transaction();
-
-    try {
-      const bienesRegistrados = [];
-
-      for (let i = 0; i < bienesArray.length; i++) {
-        // Extraer los campos generales del bien
-        const {
-          tipo,
-          marca,
-          modelo,
-          descripcion,
-          precio,
-          cantidad,
-          metodoPago,
-          imei  // Solo para teléfonos móviles
-        } = bienesArray[i];
-
-        // Extraer la información de fotos para este bien desde uploadedPhotos
-        // Si no existe, se usa un objeto vacío.
-        const photosData = uploadedPhotos[i] || {};
-        // Las fotos generales deben ser un arreglo (si se subieron)
-        const fotos = Array.isArray(photosData.fotos) ? photosData.fotos : [];
-        // La foto del IMEI (si se subió) se espera en "imeiFoto"
-        const imeiFoto = photosData.imeiFoto || null;
-
-        console.log(`📌 Procesando bien ${i}:`, {
-          tipo,
-          marca,
-          modelo,
-          descripcion,
-          precio,
-          cantidad,
-          metodoPago,
-          fotos,
-          imei,
-          imeiFoto
-        });
-
-        // Crear el registro del bien
-        let bien;
-        try {
-          bien = await Bien.create(
-            {
-              uuid: uuidv4(),
-              tipo,
-              marca,
-              modelo,
-              descripcion: descripcion || "Sin descripción",
-              precio: parseFloat(precio) || 0,
-              fotos,  // Se espera que fotos sea un arreglo (incluso si está vacío)
-              propietario_uuid: req.user.uuid,
-            },
-            { transaction }
-          );
-        } catch (error) {
-          if (error.name === 'SequelizeUniqueConstraintError') {
-            bien = await Bien.findOne({ where: { tipo, marca, modelo }, transaction });
-          } else {
-            throw error;
-          }
-        }
-
-        // Actualizar o insertar el stock
-        await Stock.upsert(
-          {
-            uuid: uuidv4(),
-            bien_uuid: bien.uuid,
-            cantidad: cantidad || 1,
-            usuario_uuid: req.user.uuid,
-          },
-          { transaction }
-        );
-
-        // Registrar la transacción de compra
-        await Transaccion.create(
-          {
-            cantidad,
-            metodoPago: metodoPago || "efectivo",
-            comprador_uuid: req.user.uuid,
-            vendedor_uuid: vendedorId,
-            bien_uuid: bien.uuid,
-            fotos,  // Fotos generales (si existen)
-            precio: parseFloat(precio) || 0,
-          },
-          { transaction }
-        );
-
-        // Para teléfonos móviles, se requiere que se envíe un IMEI.
-        // Si el bien es "teléfono movil" y se envió un IMEI, crear DetallesBien.
-        if (tipo === "teléfono movil") {
-          if (!imei) {
-            throw new Error(`Falta el IMEI para el bien en el índice ${i} (marca: ${marca}, modelo: ${modelo}).`);
-          }
-          await DetallesBien.create(
-            {
-              uuid: uuidv4(),
-              bien_uuid: bien.uuid,
-              identificador_unico: imei,
-              foto: imeiFoto, // Puede ser null si no se subió foto del IMEI
-              estado: 'disponible',
-            },
-            { transaction }
-          );
-        }
-
-        bienesRegistrados.push(bien);
-      }
-
-      await transaction.commit();
-      return res.status(201).json({ message: "Compra registrada con éxito.", bienes: bienesRegistrados });
-    } catch (error) {
-      await transaction.rollback();
-      console.error("❌ Error en la compra:", error);
-      return res.status(500).json({ message: error.message || "Error interno." });
-    }
+    await Message.create({
+      senderUuid: SYSTEM_UUID,
+      recipientUuid: null,
+      assignedAdminUuid: null,
+      isForAdmins: true,
+      content: contenido,
+      isRead: false,
+    }, { transaction });
   } catch (error) {
-    console.error("❌ Error general en la compra:", error);
-    return res.status(500).json({ message: "Error interno del servidor." });
+    console.error('⚠️ No se pudo enviar mensaje automático al administrador:', error.message);
   }
 };
+
+
+
+const obtenerComprasPorUsuario = async (req, res) => {
+  const { uuid } = req.params;
+  const page = parseInt(req.query.page) || 1;
+  const limit = parseInt(req.query.limit) || 10;
+  const offset = (page - 1) * limit;
+
+  if (!uuid || !isUuid(uuid)) {
+    return res.status(400).json({ message: 'UUID inválido o no proporcionado.' });
+  }
+
+  try {
+    const usuario = await Usuario.findOne({
+      where: { uuid },
+      include: [{ model: Empresa, as: 'empresa' }]
+    });
+
+    const empresaUuid = usuario?.empresaUuid || usuario?.empresa?.uuid;
+
+    const { count, rows } = await Transaccion.findAndCountAll({
+      where: {
+        [Op.or]: [
+          { comprador_uuid: uuid },
+          ...(empresaUuid ? [{ comprador_representado_empresa_uuid: empresaUuid }] : [])
+        ]
+      },
+      limit,
+      offset,
+      order: [['fecha', 'DESC']],
+      include: [
+        {
+          model: Bien,
+          as: 'bienTransaccion',
+          attributes: ['uuid', 'descripcion', 'marca', 'modelo', 'precio', 'fotos', 'tipo'],
+        },
+        {
+          model: DetallesBien,
+          as: 'detallesVendidos',
+          through: { attributes: [] },
+          attributes: ['identificador_unico', 'estado', 'foto'],
+        },
+        {
+          model: Usuario,
+          as: 'vendedorTransaccion',
+          attributes: ['uuid', 'nombre', 'apellido', 'email'],
+        },
+        {
+          model: Empresa,
+          as: 'empresaVendedora',
+          attributes: ['uuid', 'razonSocial'],
+        }
+      ],
+    });
+
+    res.status(200).json({
+      success: true,
+      data: rows,
+      total: count,
+      page,
+      limit
+    });
+
+  } catch (error) {
+    console.error('❌ Error en obtenerComprasPorUsuario:', error);
+    res.status(500).json({ message: 'Error al obtener compras.', detalles: error.message });
+  }
+};
+
+
+
+
+const obtenerVentasPorUsuario = async (req, res) => {
+  const { uuid } = req.params;
+  const page = parseInt(req.query.page) || 1;
+  const limit = parseInt(req.query.limit) || 10;
+  const offset = (page - 1) * limit;
+
+  if (!uuid || !isUuid(uuid)) {
+    return res.status(400).json({ message: 'UUID inválido o no proporcionado.' });
+  }
+
+  try {
+    const usuario = await Usuario.findOne({
+      where: { uuid },
+      include: [{ model: Empresa, as: 'empresa' }]
+    });
+
+    const empresaUuid = usuario?.empresaUuid || usuario?.empresa?.uuid;
+
+    const { count, rows } = await Transaccion.findAndCountAll({
+      where: {
+        [Op.or]: [
+          { vendedor_uuid: uuid },
+          ...(empresaUuid ? [{ vendedor_representado_empresa_uuid: empresaUuid }] : [])
+        ]
+      },
+      limit,
+      offset,
+      order: [['fecha', 'DESC']],
+      include: [
+        {
+          model: Bien,
+          as: 'bienTransaccion',
+          attributes: ['uuid', 'descripcion', 'marca', 'modelo', 'precio', 'fotos', 'tipo'],
+          include: [{
+            model: DetallesBien,
+            as: 'detalles',
+            attributes: ['identificador_unico', 'estado', 'foto'],
+          }],
+        },
+        {
+          model: Usuario,
+          as: 'compradorTransaccion',
+          attributes: ['uuid', 'nombre', 'apellido', 'email'],
+        },
+        {
+          model: Empresa,
+          as: 'empresaCompradora',
+          attributes: ['uuid', 'razonSocial'],
+        }
+      ],
+    });
+
+    res.status(200).json({
+      success: true,
+      data: rows.map(t => ({ ...t.toJSON(), imeis: t.imeis || [] })),
+      total: count,
+      page,
+      limit
+    });
+
+  } catch (error) {
+    console.error('❌ Error en obtenerVentasPorUsuario:', error);
+    res.status(500).json({ message: 'Error al obtener ventas.', detalles: error.message });
+  }
+};
+
+
+// 🔧 Función para adaptar req.uploadedPhotos a formato esperado por crearBien
+const normalizarFotosSubidas = (input) => {
+  if (Array.isArray(input)) return input;
+
+  const normalizado = [];
+  for (let i of Object.keys(input).sort()) {
+    normalizado.push({
+      fotos: input[i]?.fotos || [],
+      imeiFotos: input[i]?.imeiFotos || {},
+    });
+  }
+  return normalizado;
+};
+
+
+
+
+
+const registrarCompra = async (req, res) => {
+  const transaction = await sequelize.transaction();
+
+  try {
+    const { comprador, vendedorId, bienes: bienesRaw } = req.body;
+    const bienesArray = typeof bienesRaw === 'string' ? JSON.parse(bienesRaw) : bienesRaw;
+    const usuario = req.user;
+    const compradorId = comprador.uuid;
+
+    const transaccionesRegistradas = [];
+
+    for (const bien of bienesArray) {
+      const cantidad = parseInt(bien.cantidad);
+      const precio = parseFloat(bien.precio);
+      const tipo = bien.tipo?.toLowerCase();
+      const esTelefono = tipo.includes('teléfono');
+
+      let bienExistente = await Bien.findOne({ where: { uuid: bien.uuid }, transaction });
+
+      if (!bienExistente) {
+        bienExistente = await Bien.create({
+          uuid: uuidv4(),
+          tipo: bien.tipo,
+          marca: bien.marca,
+          modelo: bien.modelo,
+          descripcion: bien.descripcion,
+          precio,
+          propietario_uuid: vendedorId,
+          registrado_por_uuid: vendedorId,
+          fotos: bien.fotos || [],
+        }, { transaction });
+
+        await Stock.create({
+          uuid: uuidv4(),
+          bien_uuid: bienExistente.uuid,
+          propietario_uuid: vendedorId,
+          cantidad: esTelefono ? 0 : cantidad,
+        }, { transaction });
+
+        const detallesToCreate = esTelefono
+          ? (bien.imeis || []).map(i => ({
+              uuid: uuidv4(),
+              bien_uuid: bienExistente.uuid,
+              identificador_unico: i.imei,
+              estado: 'disponible',
+              propietario_uuid: vendedorId,
+              foto: i.foto || null,
+            }))
+          : Array.from({ length: cantidad }).map((_, j) => ({
+              uuid: uuidv4(),
+              bien_uuid: bienExistente.uuid,
+              identificador_unico: uuidv4(),
+              estado: 'disponible',
+              propietario_uuid: vendedorId,
+              foto: bien.fotos?.[j] || bien.fotos?.[0] || null,
+            }));
+
+        await DetallesBien.bulkCreate(detallesToCreate, { transaction });
+      }
+
+      const transaccion = await Transaccion.create({
+        uuid: uuidv4(),
+        fecha: new Date(),
+        monto: precio * cantidad,
+        precio,
+        cantidad,
+        metodoPago: bien.metodoPago || 'efectivo',
+        vendedor_uuid: vendedorId,
+        comprador_uuid: compradorId,
+        bien_uuid: bienExistente.uuid,
+        fotos: bien.fotos || [],
+        representado_por_uuid: usuario.uuid,
+        comprador_representado_empresa_uuid: usuario.empresaUuid || null,
+      }, { transaction });
+
+      const detallesDisponibles = await DetallesBien.findAll({
+        where: {
+          bien_uuid: bienExistente.uuid,
+          propietario_uuid: vendedorId,
+          estado: 'disponible',
+        },
+        limit: cantidad,
+        transaction,
+      });
+
+      if (detallesDisponibles.length < cantidad) {
+        throw new Error(`No hay suficientes unidades disponibles para ${bien.modelo}`);
+      }
+
+      for (const detalle of detallesDisponibles) {
+        detalle.estado = 'activo';
+        detalle.propietario_uuid = compradorId;
+        await detalle.save({ transaction });
+
+        await TransaccionDetalle.create({
+          transaccion_uuid: transaccion.uuid,
+          detalle_uuid: detalle.uuid,
+        }, { transaction });
+      }
+
+      transaccionesRegistradas.push(transaccion);
+    }
+
+    await transaction.commit();
+    return res.status(201).json({
+      success: true,
+      message: '✅ Compra registrada correctamente.',
+      transacciones: transaccionesRegistradas,
+    });
+  } catch (error) {
+    await transaction.rollback();
+    console.error('❌ Error en registrarCompra:', error);
+    return res.status(500).json({
+      success: false,
+      message: '❌ Error al registrar la compra.',
+      error: error.message,
+    });
+  }
+};
+
+const registrarVenta = async (req, res) => {
+  const transaction = await sequelize.transaction();
+  const transaccionesRegistradas = [];
+
+  try {
+    const usuario = req.user;
+    const vendedorReal = usuario.empresaUuid || usuario.uuid;
+
+    const compradorData = req.body.comprador || null;
+    let compradorId = req.body.compradorId;
+
+    if (!compradorId && compradorData?.dni && compradorData?.email) {
+      const nuevoComprador = await crearUsuarioPorTercero(compradorData, vendedorReal);
+      compradorId = nuevoComprador.uuid;
+    }
+
+    let bienesArray;
+    try {
+      bienesArray = typeof req.body.ventaData === 'string'
+        ? JSON.parse(req.body.ventaData)
+        : req.body.ventaData;
+    } catch (e) {
+      throw new Error('ventaData no es JSON válido');
+    }
+
+    const fotosCargadas = req.uploadedPhotosVenta || {};
+    console.log('\n🧾 DEBUG VENTA - Backend recibió:\n', JSON.stringify({ body: req.body, fotosCargadas }, null, 2));
+
+    for (let i = 0; i < bienesArray.length; i++) {
+      const bien = bienesArray[i];
+      const fotosBien = fotosCargadas[i]?.fotos || [];
+
+      // Crear bien si es nuevo
+      if (!bien.uuid) {
+        const nuevoBienUUID = uuidv4();
+
+        await Bien.create({
+          uuid: nuevoBienUUID,
+          tipo: bien.tipo,
+          marca: bien.marca,
+          modelo: bien.modelo,
+          descripcion: bien.descripcion,
+          precio: parseFloat(bien.precio),
+          propietario_uuid: vendedorReal,
+          registrado_por_uuid: usuario.uuid,
+          fotos: fotosBien,
+        }, { transaction });
+
+        await Stock.create({
+          uuid: uuidv4(),
+          bien_uuid: nuevoBienUUID,
+          propietario_uuid: vendedorReal,
+          cantidad: bien.cantidad,
+        }, { transaction });
+
+        if (bien.tipo.toLowerCase().includes('teléfono')) {
+          for (let k = 0; k < (bien.imeis || []).length; k++) {
+            const imei = bien.imeis[k];
+            const fotoImei = fotosCargadas[i]?.imeiFotos?.[k] || imei.foto || null;
+
+            await DetallesBien.create({
+              uuid: uuidv4(),
+              bien_uuid: nuevoBienUUID,
+              propietario_uuid: vendedorReal,
+              identificador_unico: imei.imei,
+              estado: 'disponible',
+              foto: fotoImei,
+              precio: parseFloat(imei.precio) || 0,
+            }, { transaction });
+          }
+        } else {
+          for (let j = 0; j < bien.cantidad; j++) {
+            await DetallesBien.create({
+              uuid: uuidv4(),
+              bien_uuid: nuevoBienUUID,
+              propietario_uuid: vendedorReal,
+              identificador_unico: `ID-${uuidv4().slice(0, 8)}-${Date.now()}-${j}`,
+              estado: 'disponible',
+              foto: fotosBien[j] || fotosBien[0] || null,
+              precio: parseFloat(bien.precio) || 0,
+            }, { transaction });
+          }
+        }
+
+        bien.uuid = nuevoBienUUID;
+      }
+
+      const bienExistente = await Bien.findOne({
+        where: { uuid: bien.uuid },
+        transaction,
+      });
+
+      if (!bienExistente) {
+        throw new Error(`Bien no encontrado con UUID: ${bien.uuid}`);
+      }
+
+      if (fotosBien.length > 0) {
+        await Bien.update({ fotos: fotosBien }, {
+          where: { uuid: bien.uuid },
+          transaction,
+        });
+      }
+
+      // Transacción
+      const transaccion = await Transaccion.create({
+        uuid: uuidv4(),
+        fecha: new Date(),
+        monto: parseFloat(bien.precio) * bien.cantidad,
+        precio: parseFloat(bien.precio),
+        cantidad: bien.cantidad,
+        metodoPago: bien.metodoPago || 'efectivo',
+        vendedor_uuid: vendedorReal,
+        comprador_uuid: compradorId,
+        vendedor_representado_empresa_uuid: usuario.empresaUuid || null,
+        representado_por_uuid: usuario.uuid || null,
+        bien_uuid: bien.uuid,
+        fotos: fotosBien,
+      }, { transaction });
+
+      // Obtener detalles que se venden
+      const imeisRecibidos = Array.isArray(bien.imeis)
+        ? bien.imeis.map(i => i.imei).filter(Boolean)
+        : [];
+
+      let detallesVendidos = [];
+
+      if (imeisRecibidos.length > 0) {
+        const detalles = await DetallesBien.findAll({
+          where: {
+            bien_uuid: bien.uuid,
+            propietario_uuid: vendedorReal,
+          },
+          transaction,
+        });
+
+        detallesVendidos = detalles.filter(d =>
+          d.estado === 'disponible' && imeisRecibidos.includes(d.identificador_unico)
+        );
+
+        if (detallesVendidos.length < imeisRecibidos.length) {
+          throw new Error(`No todos los IMEIs están disponibles para ${bien.modelo}.`);
+        }
+      } else {
+        detallesVendidos = await DetallesBien.findAll({
+          where: {
+            bien_uuid: bien.uuid,
+            propietario_uuid: vendedorReal,
+            estado: 'disponible',
+          },
+          limit: bien.cantidad,
+          transaction,
+        });
+
+        if (detallesVendidos.length < bien.cantidad) {
+          throw new Error(`No hay suficientes unidades disponibles para ${bien.modelo}.`);
+        }
+      }
+
+      // 👇 CREAR BIEN PARA COMPRADOR si no lo tiene
+      let bienDelComprador = await Bien.findOne({
+        where: {
+          tipo: bien.tipo,
+          marca: bien.marca,
+          modelo: bien.modelo,
+          propietario_uuid: compradorId,
+        },
+        transaction,
+      });
+
+      if (!bienDelComprador) {
+        bienDelComprador = await Bien.create({
+          uuid: uuidv4(),
+          tipo: bien.tipo,
+          marca: bien.marca,
+          modelo: bien.modelo,
+          descripcion: bien.descripcion,
+          precio: parseFloat(bien.precio),
+          propietario_uuid: compradorId,
+          registrado_por_uuid: usuario.uuid,
+          fotos: fotosBien,
+        }, { transaction });
+
+        await Stock.create({
+          uuid: uuidv4(),
+          bien_uuid: bienDelComprador.uuid,
+          propietario_uuid: compradorId,
+          cantidad: 0, // se suma abajo
+        }, { transaction });
+      }
+
+      // Transferencia de detalles
+      for (const detalle of detallesVendidos) {
+        detalle.estado = 'disponible';
+        detalle.propietario_uuid = compradorId;
+        detalle.bien_uuid = bienDelComprador.uuid;
+        await detalle.save({ transaction });
+
+        await TransaccionDetalle.create({
+          transaccion_uuid: transaccion.uuid,
+          detalle_uuid: detalle.uuid,
+        }, { transaction });
+      }
+
+      // Actualizar stock
+      const stockComprador = await Stock.findOne({
+        where: { bien_uuid: bienDelComprador.uuid, propietario_uuid: compradorId },
+        transaction,
+      });
+
+      if (stockComprador) {
+        stockComprador.cantidad += detallesVendidos.length;
+        await stockComprador.save({ transaction });
+      }
+
+      transaccionesRegistradas.push(transaccion);
+    }
+
+    await transaction.commit();
+
+    return res.status(201).json({
+      success: true,
+      message: '✅ Venta registrada correctamente.',
+      transacciones: transaccionesRegistradas,
+    });
+
+  } catch (error) {
+    if (transaction) await transaction.rollback();
+    console.error('❌ Error en registrarVenta:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || '❌ Error al registrar la venta.',
+    });
+  }
+};
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 const crearBienYStock = async ({ tipo, marca, modelo, cantidad, precio, vendedorId, transaction }) => {
@@ -203,158 +657,8 @@ const crearBienYStock = async ({ tipo, marca, modelo, cantidad, precio, vendedor
 };
 
 
-const registrarVenta = async (req, res) => {
-  try {
-    const { vendedorUuid, compradorId, ventaData } = req.body;
-    const bienesArray = JSON.parse(ventaData);
-    const fotosCargadas = req.uploadedPhotosVenta || {};
 
-    console.log("📌 Datos de la venta recibidos:", bienesArray);
-    console.log("📸 Fotos subidas asociadas:", JSON.stringify(fotosCargadas, null, 2));
 
-    const transaction = await sequelize.transaction();
-
-    try {
-      for (let i = 0; i < bienesArray.length; i++) {
-        const bien = bienesArray[i];
-        const fotosBien = fotosCargadas[i]?.fotos || [];
-        const imeisCargados = fotosCargadas[i]?.imeis || {};
-
-        console.log(`📌 Procesando bien #${i + 1}:`, bien);
-        console.log(`📸 Fotos asociadas al bien:`, fotosBien);
-
-        let bienExistente;
-
-        // 1️⃣ Verificar si el bien ya existe en la BD
-        if (bien.uuid) {
-          bienExistente = await Bien.findOne({ where: { uuid: bien.uuid }, transaction });
-
-          if (!bienExistente) {
-            throw new Error(`❌ Bien con UUID ${bien.uuid} no encontrado.`);
-          }
-
-          // 2️⃣ Verificar stock disponible
-          const stockExistente = await Stock.findOne({ where: { bien_uuid: bien.uuid }, transaction });
-
-          if (!stockExistente || stockExistente.cantidad < bien.cantidad) {
-            throw new Error(`❌ Stock insuficiente para el bien: ${bienExistente.modelo}`);
-          }
-
-          // 3️⃣ Restar stock y actualizar bien
-          stockExistente.cantidad -= bien.cantidad;
-          await stockExistente.save({ transaction });
-
-          if (fotosBien.length > 0) {
-            bienExistente.fotos = [...(bienExistente.fotos || []), ...fotosBien];
-            await bienExistente.save({ transaction });
-            console.log(`✅ Fotos añadidas al bien existente (${bienExistente.uuid}):`, bienExistente.fotos);
-          }
-        } else {
-          // 4️⃣ Crear un nuevo bien si no existe
-          const nuevoUuid = uuidv4();
-
-          bienExistente = await Bien.create(
-            {
-              uuid: nuevoUuid,
-              tipo: bien.tipo,
-              marca: bien.marca,
-              modelo: bien.modelo,
-              descripcion: bien.descripcion,
-              precio: parseFloat(bien.precio),
-              propietario_uuid: vendedorUuid,
-              fotos: fotosBien,
-            },
-            { transaction }
-          );
-
-          console.log(`✅ Nuevo bien creado (${nuevoUuid}):`, bienExistente);
-
-          await Stock.create(
-            {
-              bien_uuid: nuevoUuid,
-              cantidad: 0,
-              usuario_uuid: vendedorUuid,
-            },
-            { transaction }
-          );
-        }
-
-        // 5️⃣ Procesar IMEIs (si el bien tiene identificadores únicos)
-        const imeisVendidos = [];
-
-        if (bien.imeis && bien.imeis.length > 0) {
-          for (let j = 0; j < bien.imeis.length; j++) {
-            const imeiObj = bien.imeis[j];
-            const imeiFotoUrl = imeisCargados[j] || imeiObj.foto || null;
-
-            let detalleImei = await DetallesBien.findOne({
-              where: {
-                identificador_unico: imeiObj.imei,
-                bien_uuid: bienExistente.uuid,
-              },
-              transaction,
-            });
-
-            if (!detalleImei) {
-              detalleImei = await DetallesBien.create(
-                {
-                  bien_uuid: bienExistente.uuid,
-                  identificador_unico: imeiObj.imei,
-                  estado: "vendido",
-                  foto: imeiFotoUrl,
-                },
-                { transaction }
-              );
-            } else {
-              detalleImei.estado = "vendido";
-              detalleImei.foto = imeiFotoUrl || detalleImei.foto;
-              await detalleImei.save({ transaction });
-            }
-
-            imeisVendidos.push({
-              imei: imeiObj.imei,
-              foto: detalleImei.foto,
-              precio: imeiObj.precio,
-            });
-
-            console.log(`✅ IMEI procesado [${j}]:`, imeiObj.imei, "Foto:", imeiFotoUrl);
-          }
-        }
-
-        // 6️⃣ Crear la transacción de venta
-        await Transaccion.create(
-          {
-            uuid: uuidv4(),
-            fecha: new Date(),
-            monto: parseFloat(bien.precio) * bien.cantidad,
-            precio: parseFloat(bien.precio),
-            cantidad: bien.cantidad,
-            metodoPago: bien.metodoPago || "efectivo",
-            vendedor_uuid: vendedorUuid,
-            comprador_uuid: compradorId,
-            bien_uuid: bienExistente.uuid,
-            fotos: fotosBien,
-            imeis: imeisVendidos,
-          },
-          { transaction }
-        );
-
-        console.log(`✅ Transacción registrada para el bien ${bienExistente.uuid}`);
-      }
-
-      await transaction.commit();
-
-      return res.status(201).json({ success: true, message: "✅ Venta registrada correctamente." });
-    } catch (error) {
-      await transaction.rollback();
-      console.error("❌ Error en la transacción:", error);
-      return res.status(500).json({ message: "❌ Error en la venta.", error: error.message });
-    }
-  } catch (error) {
-    console.error("❌ Error general:", error);
-    return res.status(500).json({ message: "❌ Error interno del servidor." });
-  }
-};
 
 
 
@@ -362,8 +666,6 @@ const registrarVenta = async (req, res) => {
 const registrarTransaccion = async (req, res) => {
   
     const { bienId, compradorId, vendedorId, cantidad, metodoPago, monto } = req.body;
-    console.log('Datos recibidos en registrarCompra:', req.body);
-    console.log('Fotos procesadas:', req.uploadedPhotos);
     
     try {
       if (!bienId || !compradorId || !vendedorId || !cantidad || !metodoPago || !monto) {
@@ -389,72 +691,122 @@ const registrarTransaccion = async (req, res) => {
   
       res.status(201).json({ success: true, message: 'Transacción registrada exitosamente.', transaccion });
     } catch (error) {
-      console.error('Error al registrar la transacción:', error);
       res.status(500).json({ error: 'Error al procesar la transacción.', detalles: error.message });
     }
   };
+
+
+
+  const obtenerTransaccionesPorUsuario = async (req, res) => {
+    const { uuid } = req.params;
+    const tipo = req.query.tipo;
+    const page = parseInt(req.query.page || 1, 10);
+    const limit = parseInt(req.query.limit || 10, 10);
+    const offset = (page - 1) * limit;
+  
+    if (!uuid) return res.status(400).json({ message: 'El UUID del usuario es obligatorio.' });
+  
+    let whereCondition;
+    if (tipo === 'compra') {
+      whereCondition = {
+        [Op.or]: [
+          { comprador_uuid: uuid },
+          { comprador_representado_empresa_uuid: uuid }
+        ]
+      };
+    } else if (tipo === 'venta') {
+      whereCondition = {
+        [Op.or]: [
+          { vendedor_uuid: uuid },
+          { vendedor_representado_empresa_uuid: uuid }
+        ]
+      };
+    } else {
+      whereCondition = {
+        [Op.or]: [
+          { comprador_uuid: uuid },
+          { vendedor_uuid: uuid },
+          { representado_por_uuid: uuid },
+          { comprador_representado_empresa_uuid: uuid },
+          { vendedor_representado_empresa_uuid: uuid }
+        ]
+      };
+    }
+  
+    try {
+      const { count, rows } = await Transaccion.findAndCountAll({
+        where: whereCondition,
+        include: [
+          {
+            model: Bien,
+            as: 'bienTransaccion',
+            attributes: ['uuid', 'descripcion', 'marca', 'modelo', 'precio', 'fotos', 'tipo'],
+          },
+          {
+            model: DetallesBien,
+            as: 'detallesVendidos',
+            through: { attributes: [] },
+            attributes: ['identificador_unico', 'estado', 'foto'],
+          },
+          {
+            model: Usuario,
+            as: 'compradorTransaccion',
+            attributes: ['uuid', 'nombre', 'apellido', 'email', 'direccion']
+          },
+          {
+            model: Usuario,
+            as: 'vendedorTransaccion',
+            attributes: ['uuid', 'nombre', 'apellido', 'email', 'direccion']
+          },
+          {
+            model: Empresa,
+            as: 'empresaCompradora',
+            attributes: ['uuid', 'razonSocial']
+          },
+          {
+            model: Empresa,
+            as: 'empresaVendedora',
+            attributes: ['uuid', 'razonSocial']
+          }
+        ],
+        limit,
+        offset,
+        order: [['fecha', 'DESC']],
+      });
+  
+      return res.status(200).json({
+        success: true,
+        data: rows,
+        page,
+        total: count,
+        totalPages: Math.ceil(count / limit)
+      });
+    } catch (err) {
+      console.error('❌ Error al obtener transacciones:', err);
+      return res.status(500).json({
+        message: 'Error interno al obtener transacciones.',
+        detalles: err.message
+      });
+    }
+  };
+  
   
 
 
 
-/**
- * Obtener transacciones por usuario (como comprador o vendedor).
- */
-const obtenerTransaccionesPorUsuario = async (req, res) => {
-  const { uuid } = req.params;
 
-  if (!uuid) {
-    return res.status(400).json({ message: 'El UUID del usuario es obligatorio.' });
-  }
 
-  console.log('UUID recibido:', uuid);
 
-  try {
-    const transacciones = await Transaccion.findAll({
-      where: {
-        [Op.or]: [{ comprador_uuid: uuid }, { vendedor_uuid: uuid }],
-      },
-      include: [
-        {
-          model: Bien,
-          as: 'bienTransaccion',
-          attributes: ['uuid', 'descripcion', 'marca', 'modelo', 'precio', 'fotos', 'tipo'],
-          include: [
-            {
-              model: DetallesBien,
-              as: 'detalles',
-              attributes: ['identificador_unico', 'estado', 'foto'], // ✅ Incluir la foto de los IMEIs
-            },
-          ],
-        },
-        {
-          model: Usuario,
-          as: 'compradorTransaccion',
-          attributes: ['uuid', 'nombre', 'apellido', 'dni', 'cuit', 'email', 'direccion', 'tipo'],
-        },
-        {
-          model: Usuario,
-          as: 'vendedorTransaccion',
-          attributes: ['uuid', 'nombre', 'apellido', 'dni', 'cuit', 'email', 'direccion', 'tipo'],
-        },
-      ],
-    });
 
-    if (transacciones.length === 0) {
-      return res.json({ message: 'No se encontraron transacciones para este usuario.', transacciones: [] });
-    }
+  
 
-    console.log('✅ Transacciones encontradas:', JSON.stringify(transacciones, null, 2)); 
 
-    res.json(transacciones);
-  } catch (error) {
-    console.error('❌ Error al obtener transacciones:', error.message);
-    res.status(500).json({
-      message: 'Error al obtener transacciones.',
-      detalles: error.message,
-    });
-  }
-};
+
+  
+ 
+
+
+
 
 
 
@@ -479,7 +831,6 @@ const obtenerTransaccionesPorBien = async (req, res) => {
 
     res.json(transacciones);
   } catch (error) {
-    console.error('Error al obtener transacciones por bien:', error);
     res.status(500).json({ error: 'Error al obtener transacciones.', detalles: error.message });
   }
 };
@@ -499,7 +850,6 @@ const eliminarTransaccion = async (req, res) => {
     await transaccion.destroy();
     res.json({ success: true, message: 'Transacción eliminada exitosamente.' });
   } catch (error) {
-    console.error('Error al eliminar la transacción:', error);
     res.status(500).json({ error: 'Error al eliminar la transacción.', detalles: error.message });
   }
 };
@@ -534,7 +884,7 @@ const obtenerBienesConFotos = async (req, res) => {
       include: [
         {
           model: Stock,
-          as: 'stock',
+          as: 'stocks',
           where: { usuario_uuid: uuid }, // Filtrar por el usuario propietario del stock
           required: true,
         },
@@ -548,10 +898,148 @@ const obtenerBienesConFotos = async (req, res) => {
 
     res.status(200).json(bienesConFotos);
   } catch (error) {
-    console.error('Error al obtener bienes con fotos:', error);
     res.status(500).json({ message: 'Error al obtener bienes.', error: error.message });
   }
 };
+
+const obtenerTransaccionesPorEmpresa = async (req, res) => {
+  const { empresaUuid } = req.params;
+
+  try {
+    const transacciones = await Transaccion.findAll({
+      where: {
+        [Op.or]: [
+          { vendedor_uuid: empresaUuid },
+          { representado_por_uuid: empresaUuid },
+          { comprador_representado_empresa_uuid: empresaUuid },
+        ]
+      },
+      include: [
+        {
+          model: Empresa,
+          as: 'empresaVendedora',
+          attributes: ['uuid', 'razonSocial']
+        },
+        {
+          model: Empresa,
+          as: 'empresaCompradora',
+          attributes: ['uuid', 'razonSocial']
+        },
+        {
+          model: Bien,
+          as: 'bienTransaccion',
+          attributes: ['uuid', 'descripcion', 'marca', 'modelo', 'precio', 'fotos', 'tipo'],
+        },
+        {
+          model: DetallesBien,
+          as: 'detallesVendidos',
+          through: { attributes: [] },
+          attributes: ['identificador_unico', 'estado', 'foto'],
+        },
+        {
+          model: Usuario,
+          as: 'compradorTransaccion',
+          attributes: ['uuid', 'nombre', 'apellido', 'dni', 'cuit', 'email', 'direccion', 'tipo'],
+        },
+        {
+          model: Usuario,
+          as: 'vendedorTransaccion',
+          attributes: ['uuid', 'nombre', 'apellido', 'dni', 'cuit', 'email', 'direccion', 'tipo'],
+        },
+        {
+          model: Usuario,
+          as: 'delegadoRepresentante',
+          attributes: ['uuid', 'nombre', 'apellido', 'email'],
+        }
+      ],
+      order: [['fecha', 'DESC']]
+    });
+
+    res.json(transacciones);
+  } catch (error) {
+    console.error("🔥 Error en obtenerTransaccionesPorEmpresa:", error);
+    res.status(500).json({
+      message: 'Error al obtener transacciones de la empresa.',
+      error: error.message || error
+    });
+  }
+};
+
+const obtenerTodasLasTransaccionesSinPaginado = async (req, res) => {
+  const { uuid } = req.params;
+  const { modo } = req.query;
+
+  if (!uuid) {
+    return res.status(400).json({ message: 'El UUID del usuario es obligatorio.' });
+  }
+
+  try {
+    let condiciones = [];
+
+    if (modo === 'empresa') {
+      condiciones = [
+        { comprador_representado_empresa_uuid: uuid },
+        { vendedor_representado_empresa_uuid: uuid },
+      ];
+    } else {
+      condiciones = [
+        { comprador_uuid: uuid },
+        { vendedor_uuid: uuid },
+        { representado_por_uuid: uuid },
+      ];
+    }
+
+    const transacciones = await Transaccion.findAll({
+      where: { [Op.or]: condiciones },
+      include: [
+        {
+          model: Bien,
+          as: 'bienTransaccion',
+          attributes: ['uuid', 'descripcion', 'marca', 'modelo', 'precio', 'fotos', 'tipo'],
+        },
+        {
+          model: DetallesBien,
+          as: 'detallesVendidos',
+          through: { attributes: [] },
+          attributes: ['identificador_unico', 'estado', 'foto'],
+        },
+        {
+          model: Usuario,
+          as: 'compradorTransaccion',
+          attributes: ['uuid', 'nombre', 'apellido', 'email']
+        },
+        {
+          model: Usuario,
+          as: 'vendedorTransaccion',
+          attributes: ['uuid', 'nombre', 'apellido', 'email']
+        },
+        {
+          model: Empresa,
+          as: 'empresaCompradora',
+          attributes: ['uuid', 'razonSocial']
+        },
+        {
+          model: Empresa,
+          as: 'empresaVendedora',
+          attributes: ['uuid', 'razonSocial']
+        },
+      ],
+      order: [['fecha', 'DESC']]
+    });
+
+    return res.status(200).json({ success: true, data: transacciones });
+  } catch (err) {
+    console.error('❌ Error en obtenerTodasLasTransaccionesSinPaginado:', err);
+    return res.status(500).json({
+      message: 'Error interno al obtener transacciones.',
+      detalles: err.message
+    });
+  }
+};
+
+
+
+
 
 
 module.exports = {
@@ -564,4 +1052,8 @@ module.exports = {
   actualizarStockVendedor,
   crearBienYStock,
   obtenerBienesConFotos ,
+  obtenerTransaccionesPorEmpresa, 
+  obtenerComprasPorUsuario,
+  obtenerVentasPorUsuario,
+  obtenerTodasLasTransaccionesSinPaginado,
 };

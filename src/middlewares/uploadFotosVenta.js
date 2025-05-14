@@ -1,5 +1,7 @@
 const multer = require("multer");
 const cloudinary = require("cloudinary").v2;
+const { uploadFotosMiddleware } = require('./uploadFotos')
+
 
 // 🔐 Configuración de Cloudinary
 cloudinary.config({
@@ -17,7 +19,6 @@ const uploadFotosVenta = multer({
   limits: { fileSize: 5 * 1024 * 1024 }, // Máximo 5MB por imagen
   fileFilter: (req, file, cb) => {
     if (!file.mimetype.startsWith("image/")) {
-      console.warn(`⚠️ Archivo no permitido: ${file.originalname}`);
       return cb(new Error("Solo se permiten archivos de imagen."), false);
     }
     cb(null, true);
@@ -31,7 +32,6 @@ const uploadFileToCloudinary = (fileBuffer) => {
       { resource_type: "image" },
       (error, result) => {
         if (error) {
-          console.error("❌ Error en Cloudinary:", error);
           return reject(error);
         }
         resolve(result.secure_url);
@@ -42,75 +42,26 @@ const uploadFileToCloudinary = (fileBuffer) => {
 };
 
 // 📌 Middleware para procesar la subida de imágenes
-const uploadFotosVentaMiddleware = async (req, res, next) => {
-  console.log("📌 Iniciando middleware de subida de fotos para Venta...");
 
-  uploadFotosVenta(req, res, async (err) => {
+const uploadFotosVentaMiddleware = async (req, res, next) => {
+  uploadFotosMiddleware(req, res, (err) => {
     if (err) {
-      console.error("❌ Error en Multer:", err);
+      console.error('❌ Error en uploadFotosVentaMiddleware:', err);
       return res.status(400).json({ error: err.message });
     }
 
-    console.log("📌 Archivos recibidos por Multer:", req.files);
-
-    if (!req.files || req.files.length === 0) {
-      console.warn("⚠️ No se recibieron imágenes.");
-      req.uploadedPhotosVenta = {};
-      return next();
-    }
-
     try {
-      const uploadedPhotosVenta = {};
+      // Renombramos a uploadedPhotosVenta para distinguirlo
+      req.uploadedPhotosVenta = req.uploadedPhotos || {};
+      delete req.uploadedPhotos;
 
-      // 🔄 Subir imágenes a Cloudinary de forma concurrente
-      const uploadPromises = req.files.map(async (file) => {
-        console.log(`📸 Subiendo archivo: ${file.originalname}...`);
-
-        try {
-          const fotoUrl = await uploadFileToCloudinary(file.buffer);
-          console.log("✅ Foto subida a Cloudinary:", fotoUrl);
-
-          // 🔍 Verificar a qué bien pertenece la imagen
-          console.log(`📌 Campo recibido: ${file.fieldname}`);
-          const matchFotos = file.fieldname.match(/venta\[(\d+)\]\[fotos\]\[(\d+)\]/);
-          const matchImei = file.fieldname.match(/venta\[(\d+)\]\[imeis\]\[(\d+)\]\[foto\]/);
-
-          if (matchFotos) {
-            const ventaIndex = matchFotos[1];
-            if (!uploadedPhotosVenta[ventaIndex]) {
-              uploadedPhotosVenta[ventaIndex] = { fotos: [], imeis: {} };
-            }
-            uploadedPhotosVenta[ventaIndex].fotos.push(fotoUrl);
-            console.log(`✅ Foto asignada a bien[${ventaIndex}]: ${fotoUrl}`);
-          } else if (matchImei) {
-            const ventaIndex = matchImei[1];
-            const imeiIndex = matchImei[2];
-
-            if (!uploadedPhotosVenta[ventaIndex]) {
-              uploadedPhotosVenta[ventaIndex] = { fotos: [], imeis: {} };
-            }
-
-            uploadedPhotosVenta[ventaIndex].imeis[imeiIndex] = fotoUrl;
-            console.log(`✅ Foto asignada a IMEI [${ventaIndex}][${imeiIndex}]: ${fotoUrl}`);
-          } else {
-            console.warn("⚠️ Campo no reconocido en el formulario:", file.fieldname);
-          }
-        } catch (uploadError) {
-          console.error("❌ Error al subir imagen a Cloudinary:", uploadError);
-        }
-      });
-
-      await Promise.all(uploadPromises); // Esperar a que todas las imágenes suban
-
-      req.uploadedPhotosVenta = uploadedPhotosVenta;
-      console.log("✅ Fotos procesadas exitosamente:", JSON.stringify(uploadedPhotosVenta, null, 2));
-      next();
+      return next();
     } catch (error) {
-      console.error("❌ Error en la subida de imágenes:", error);
-      return res.status(500).json({ error: "Error al subir fotos." });
+      console.error('❌ Error procesando imágenes para venta:', error);
+      return res.status(500).json({ error: 'Error procesando imágenes.' });
     }
   });
 };
 
-// 📌 Exportar middleware
+
 module.exports = { uploadFotosVentaMiddleware };

@@ -13,21 +13,23 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.UUID,
       allowNull: false,
       references: {
-        model: 'bienes', // Nombre de la tabla de bienes
+        model: 'bienes',
         key: 'uuid',
       },
     },
-    usuario_uuid: { // Nueva columna para referenciar al usuario
+    propietario_uuid: { // 💥 VOLVÉ A USAR EL NOMBRE QUE EXISTE EN LA TABLA
       type: DataTypes.UUID,
-      allowNull: true, // Cambiar a false si es obligatorio
-      references: {
-        model: 'usuarios', // Nombre de la tabla de usuarios
-        key: 'uuid',
-      },
+      allowNull: false,
     },
   }, {
-    tableName: 'stock', // Nombre explícito de la tabla
-    timestamps: true, // Incluye `createdAt` y `updatedAt`
+    tableName: 'stock',
+    timestamps: true,
+    indexes: [
+      {
+        unique: true,
+        fields: ['bien_uuid', 'propietario_uuid'], // 👈 este campo tiene que EXISTIR en el modelo
+      },
+    ],
   });
 
   return Stock;

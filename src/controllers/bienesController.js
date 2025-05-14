@@ -1,4 +1,4 @@
-const { Transaccion, Bien, Usuario, Stock, DetallesBien } = require('../models');
+const { Transaccion, Bien, Usuario, Stock, DetallesBien, Empresa, TransaccionDetalle} = require('../models');
 
 const { Op, fn, col, Sequelize } = require('sequelize'); 
 
@@ -22,92 +22,96 @@ const obtenerBienes = async (req, res) => {
     const bienes = await Bien.findAll({
       include: [
         {
-          model: Usuario,
-          as: "propietario", // ✅ Relación con el propietario actual
-          attributes: ["uuid", "nombre", "apellido"],
-        },
-        {
           model: Stock,
-          as: "stock",
-          attributes: ["cantidad", "usuario_uuid"], // 🔥 Asegurar que se obtiene el stock del nuevo dueño
+          as: "stocks",
+          attributes: ["cantidad", "propietario_uuid"],
+          include: [
+            {
+              model: Usuario,
+              as: "propietario",
+              attributes: ["uuid", "nombre", "apellido"],
+            },
+          ],
         },
         {
           model: DetallesBien,
           as: "detalles",
-          attributes: ["identificador_unico", "estado", "foto"],
-        },
-        {
-          model: Transaccion,
-          as: "transacciones",
-          attributes: ["createdAt"],
-          include: [
-            { model: Usuario, as: "compradorTransaccion", attributes: ["uuid", "nombre", "apellido"] },
-          ],
+          attributes: ["uuid", "identificador_unico", "estado", "foto"],
         },
       ],
-      order: [["updatedAt", "DESC"]], // ✅ Ordenar por la última actualización
+      order: [["updatedAt", "DESC"]],
     });
 
     if (!bienes.length) {
-      return res.status(404).json({ error: "No se encontraron bienes." });
+      return res.status(404).json({ message: "No se encontraron bienes." });
     }
 
-    // 🔥 Transformar datos asegurando el stock correcto
-    const bienesTransformados = bienes.map((bien) => {
-      const stockPropietario =
-        bien.stock && bien.stock.usuario_uuid === bien.propietario?.uuid
-          ? bien.stock.cantidad
-          : 0; // 🔥 Si bien.stock es null, asignamos 0
-    
-      return {
-        ...bien.get(),
-        propietario: bien.propietario
-          ? `${bien.propietario.nombre} ${bien.propietario.apellido}`
-          : "Sin propietario",
-        stock: stockPropietario, // ✅ Evitamos error al acceder a `cantidad`
-        todasLasFotos: [
-          ...(bien.fotos || []),
-          ...(bien.detalles?.map((d) => d.foto).filter(Boolean) || []),
-        ],
-        fechaActualizacion: bien.updatedAt ? new Date(bien.updatedAt).toLocaleDateString() : "Desconocida",
-      };
+    const bienesPorPropietario = [];
+
+    bienes.forEach((bien) => {
+      (bien.stocks || []).forEach((stock) => {
+        const todosIdentificadores = bien.detalles || [];
+
+        bienesPorPropietario.push({
+          uuid: bien.uuid,
+          tipo: bien.tipo,
+          marca: bien.marca,
+          modelo: bien.modelo,
+          descripcion: bien.descripcion,
+          precio: bien.precio,
+          propietario: stock.propietario
+            ? `${stock.propietario.nombre} ${stock.propietario.apellido}`
+            : "Desconocido",
+          propietario_uuid: stock.propietario_uuid,
+          stock: stock.cantidad,
+          identificadores: todosIdentificadores,
+          todasLasFotos: [ // 👈 ESTA ES LA CLAVE!
+            ...(Array.isArray(bien.fotos) ? bien.fotos : []),
+            ...(todosIdentificadores.map((d) => d.foto).filter(Boolean)),
+          ],
+          fechaActualizacion: new Date(bien.updatedAt).toLocaleDateString(),
+        });
+        
+      });
     });
-    
 
-    console.log("📌 Bienes actualizados enviados desde el backend:", bienesTransformados);
-
-    res.status(200).json(bienesTransformados);
+    return res.status(200).json(bienesPorPropietario);
   } catch (error) {
-    console.error("❌ Error obteniendo bienes:", error);
-    res.status(500).json({ error: "Error interno al obtener bienes." });
+    console.error("❌ Error en obtenerBienes:", error);
+    return res.status(500).json({ message: "Error interno al obtener bienes." });
   }
 };
 
 
 
 // Obtener bien por ID
+
+// Obtener bien por UUID, incluyendo identificadores e imeis
 const obtenerBienPorUuid = async (req, res) => {
   const { uuid } = req.params;
 
   try {
-    // Validar el formato del UUID
     if (!uuid || !/^[0-9a-fA-F-]{36}$/.test(uuid)) {
-      return res.status(400).json({ message: 'El UUID proporcionado no es válido.' });
+      return res.status(400).json({ message: 'UUID inválido.' });
     }
 
-    // Consultar el bien con todas las relaciones necesarias
     const bien = await Bien.findOne({
-      where: { uuid }, // Usar el campo uuid
+      where: { uuid },
       include: [
         {
           model: Stock,
-          as: 'stock',
-          attributes: ['uuid', 'cantidad'], // Solo incluir los atributos necesarios
+          as: 'stocks',
+          attributes: ['uuid', 'cantidad'],
         },
         {
           model: DetallesBien,
-          as: 'detalles',
-          attributes: ['uuid', 'identificador_unico'], // Incluir detalles del bien
+          as: 'identificadores', // 🟩 para bienes normales
+          attributes: ['uuid', 'identificador_unico', 'estado', 'foto'],
+        },
+        {
+          model: DetallesBien,
+          as: 'imeis', // 🟩 para teléfonos móviles
+          attributes: ['uuid', 'identificador_unico', 'estado', 'foto'],
         },
         {
           model: Transaccion,
@@ -116,30 +120,35 @@ const obtenerBienPorUuid = async (req, res) => {
             {
               model: Usuario,
               as: 'vendedorTransaccion',
-              attributes: ['nombre', 'apellido', 'email'], // Atributos del vendedor
+              attributes: ['nombre', 'apellido', 'email'],
             },
             {
               model: Usuario,
               as: 'compradorTransaccion',
-              attributes: ['nombre', 'apellido', 'email'], // Atributos del comprador
+              attributes: ['nombre', 'apellido', 'email'],
             },
           ],
         },
       ],
     });
 
-    // Verificar si el bien existe
     if (!bien) {
       return res.status(404).json({ message: 'Bien no encontrado.' });
     }
 
-    // Responder con el bien y sus relaciones
-    res.status(200).json(bien);
+    return res.status(200).json(bien);
   } catch (error) {
-    console.error('Error obteniendo el bien:', error);
-    res.status(500).json({ message: 'Error interno.', detalles: error.message });
+    console.error('❌ Error al obtener bien por UUID:', error);
+    return res.status(500).json({
+      message: 'Error al obtener el bien.',
+      detalles: error.message,
+    });
   }
 };
+
+
+
+
 
 
 // Función para validar IMEI (ejemplo simple)
@@ -148,81 +157,194 @@ const isValidIMEI = (imei) => {
   return imeiRegex.test(imei);
 };
 
+
+
 const crearBien = async (req, res) => {
   const transaction = await sequelize.transaction();
 
   try {
-    const { tipo, marca, modelo, descripcion, precio, propietario_uuid, stock } = req.body;
-    let { imei } = req.body;
-    const fotosSubidas = req.uploadedPhotos || [];
+    const usuarioLogueado = req.user;
 
-    console.log('📌 Datos recibidos del cliente:', { tipo, marca, modelo, descripcion, precio, propietario_uuid, stock, imei, fotos: fotosSubidas });
+    const {
+      tipo,
+      marca,
+      modelo,
+      descripcion,
+      precio,
+      stock,
+      propietario_uuid,
+      registrado_por_uuid,
+      imei,
+      identificadores_unicos,
+      overridePermiso,
+    } = req.body;
 
-    if (!tipo || !marca || !modelo || !descripcion || !precio || stock === undefined) {
-      return res.status(400).json({ message: 'Todos los campos son obligatorios.' });
+    const esFisica = usuarioLogueado?.tipo === 'fisica';
+    const esJuridica = usuarioLogueado?.tipo === 'juridica';
+
+    // 🔐 Validación de permisos
+    if (overridePermiso !== 'true') {
+      if (
+        (esFisica && propietario_uuid !== usuarioLogueado.uuid) ||
+        (esJuridica && propietario_uuid !== usuarioLogueado.empresaUuid)
+      ) {
+        return res.status(403).json({ message: 'No tienes permiso para registrar bienes para otros.' });
+      }
     }
 
-    let bien = await Bien.findOne({ where: { tipo, marca, modelo, propietario_uuid }, transaction });
+    // 📷 Fotos generales del bien
+    const fotosDelBien = req.uploadedPhotosVenta?.[0]?.fotos || [];
 
-    if (!bien) {
-      bien = await Bien.create({
-        uuid: uuidv4(),
-        tipo,
-        marca,
-        modelo,
-        descripcion,
-        precio: parseFloat(precio),
-        fotos: fotosSubidas,
-        propietario_uuid,
-      }, { transaction });
-
-      console.log(`✅ Bien creado con UUID: ${bien.uuid}`);
-    }
-
-    // 📌 Manejo del Stock
-    const stockParsed = typeof stock === 'string' ? JSON.parse(stock) : stock;
-    const cantidadStock = parseInt(stockParsed.cantidad, 10);
-
-    let stockExistente = await Stock.findOne({
-      where: { bien_uuid: bien.uuid, usuario_uuid: propietario_uuid },
+    // ❌ Evitar duplicados
+    const bienExistente = await Bien.findOne({
+      where: { tipo, marca, modelo, propietario_uuid },
       transaction,
     });
 
-    if (stockExistente) {
-      stockExistente.cantidad += cantidadStock;
-      await stockExistente.save({ transaction });
-    } else {
-      await Stock.create({
-        uuid: uuidv4(),
-        bien_uuid: bien.uuid,
-        cantidad: cantidadStock,
-        usuario_uuid: propietario_uuid,
-      }, { transaction });
+    if (overridePermiso === 'true' && bienExistente) {
+      await transaction.rollback();
+      return res.status(409).json({
+        success: false,
+        message: '❌ Este bien ya está registrado para el vendedor.',
+      });
+    }
 
-      console.log(`✅ Stock inicial asignado: ${cantidadStock}`);
+    // ✅ Crear bien
+    const bien = await Bien.create({
+      uuid: uuidv4(),
+      tipo,
+      marca,
+      modelo,
+      descripcion,
+      precio: parseFloat(precio) || 0,
+      fotos: fotosDelBien,
+      propietario_uuid,
+      registrado_por_uuid,
+    }, { transaction });
+
+    // 📦 Crear stock
+    const stockParsed = typeof stock === 'string' ? JSON.parse(stock) : stock;
+    const cantidadStock = parseInt(stockParsed?.cantidad || stockParsed, 10);
+
+    await Stock.create({
+      uuid: uuidv4(),
+      bien_uuid: bien.uuid,
+      cantidad: cantidadStock,
+      propietario_uuid,
+    }, { transaction });
+
+    // 📲 Si es teléfono, procesar IMEIs
+    const imeisCreados = [];
+
+    if (tipo.toLowerCase().includes('teléfono')) {
+      let imeis = [];
+
+      try {
+        imeis = typeof imei === 'string' ? JSON.parse(imei) : Array.isArray(imei) ? imei : [];
+      } catch {
+        imeis = [];
+      }
+
+      for (let i = 0; i < imeis.length; i++) {
+        const imeiData = imeis[i];
+        if (!imeiData?.imei) continue;
+
+        const yaExiste = await DetallesBien.findOne({
+          where: { identificador_unico: imeiData.imei },
+          transaction,
+        });
+
+        if (!yaExiste) {
+        const fotoImei = req.uploadedPhotos?.[0]?.imeiFotos?.[i] || null;
+          const detalle = await DetallesBien.create({
+            uuid: uuidv4(),
+            bien_uuid: bien.uuid,
+            propietario_uuid,
+            identificador_unico: imeiData.imei,
+            estado: 'disponible',
+            foto: fotoImei,
+            precio: parseFloat(imeiData.precio) || 0, // 💥 PRECIO INDIVIDUAL AQUÍ
+          }, { transaction });
+
+          imeisCreados.push({
+            imei: detalle.identificador_unico,
+            uuid: detalle.uuid,
+          });
+        }
+      }
+    } else {
+      // 🧱 Bien sin IMEIs (ej: TV, notebook, etc)
+      const identificadores = [];
+
+      for (let i = 0; i < cantidadStock; i++) {
+        identificadores.push({
+          uuid: uuidv4(),
+          bien_uuid: bien.uuid,
+          propietario_uuid,
+          identificador_unico: `ID-${uuidv4().slice(0, 8)}-${Date.now()}-${i}`,
+          estado: 'disponible',
+          foto: fotosDelBien.length > 1 ? fotosDelBien[i] : fotosDelBien[0] || null,
+        });
+      }
+
+      await DetallesBien.bulkCreate(identificadores, { transaction });
     }
 
     await transaction.commit();
 
     return res.status(201).json({
-      message: 'Bien registrado exitosamente.',
+      success: true,
+      message: '✅ Bien registrado exitosamente',
       bien: {
         uuid: bien.uuid,
         tipo: bien.tipo,
         marca: bien.marca,
         modelo: bien.modelo,
-        stock: cantidadStock, // ✅ Ahora aseguramos que siempre tenga stock
+        descripcion: bien.descripcion,
+        precio: bien.precio,
+        stock: cantidadStock,
         fotos: bien.fotos || [],
-        createdAt: bien.createdAt,
+        imeis: imeisCreados,
       },
     });
 
   } catch (error) {
     await transaction.rollback();
-    console.error('❌ Error al registrar el bien:', error);
-    return res.status(500).json({ message: 'Error al registrar el bien.', error: error.message });
+    console.error('❌ Error al registrar bien:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Error al registrar el bien.',
+      error: error.message,
+    });
   }
 };
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -255,7 +377,6 @@ const actualizarBien = async (req, res) => {
 
     res.status(200).json(bien);
   } catch (error) {
-    console.error('Error al actualizar el bien:', error);
     res.status(500).json({ message: 'Error actualizando el bien.', error: error.message });
   }
 };
@@ -283,7 +404,6 @@ const eliminarBien = async (req, res) => {
 
     res.status(200).json({ message: 'Bien eliminado correctamente.' });
   } catch (error) {
-    console.error('Error al eliminar el bien:', error);
     res.status(500).json({
       message: 'Error interno al eliminar el bien.',
       error: error.message,
@@ -294,44 +414,468 @@ const eliminarBien = async (req, res) => {
 
 
 // Obtener bienes por usuario (controlador modificado)
+// Obtener bienes por usuario (controlador corregido)
 const obtenerBienesPorUsuario = async (req, res) => {
   try {
     const { userUuid } = req.params;
-    console.log('📌 Buscando bienes para el usuario:', userUuid);
+    const { incluirDelegados = 'false' } = req.query;
 
-    const bienes = await Bien.findAll({
-      where: { propietario_uuid: userUuid },
-      include: [
-        { model: Stock, as: 'stock', attributes: ['cantidad'] },
-        { model: DetallesBien, as: 'detalles', attributes: ['uuid', 'identificador_unico', 'estado', 'foto'] },
-      ],
+    const usuario = await Usuario.findOne({
+      where: { uuid: userUuid },
+      attributes: ['uuid', 'empresa_uuid']
     });
 
-    console.log("📌 Bienes obtenidos del backend:", JSON.stringify(bienes, null, 2));
-
-    if (!bienes.length) {
-      return res.status(404).json({ message: 'No se encontraron bienes.' });
+    if (!usuario) {
+      return res.status(404).json({ message: 'Usuario no encontrado.' });
     }
 
-    const bienesTransformados = bienes.map(bien => ({
-      uuid: bien.uuid,
-      tipo: bien.tipo,
-      marca: bien.marca,
-      modelo: bien.modelo,
-      descripcion: bien.descripcion,
-      stock: bien.stock ? bien.stock.cantidad : 0,  // ✅ Si no hay stock, asigna 0
-      fotos: [...(bien.fotos || []), ...(bien.detalles?.map(det => det.foto).filter(Boolean) || [])], // ✅ Fotos combinadas
-      identificadores: bien.detalles || [],
-    }));
+    const uuidABuscar = incluirDelegados === 'true' && usuario.empresa_uuid
+      ? usuario.empresa_uuid
+      : usuario.uuid;
 
-    console.log("📌 Bienes transformados antes de enviar:", JSON.stringify(bienesTransformados, null, 2));
+    const bienes = await Bien.findAll({
+      attributes: ['uuid', 'tipo', 'marca', 'modelo', 'descripcion', 'precio', 'fotos', 'createdAt'], // 🔥 AGREGADO 'createdAt'
+      include: [
+        {
+          model: Stock,
+          as: 'stocks',
+          attributes: ['cantidad', 'propietario_uuid'],
+          where: { propietario_uuid: uuidABuscar },
+          required: true,
+        },
+        {
+          model: DetallesBien,
+          as: 'detalles',
+          attributes: ['uuid', 'identificador_unico', 'estado', 'foto'],
+          required: false,
+        },
+      ],
+      order: [['createdAt', 'DESC']], // 🔥 Para traerlo más ordenado si querés
+    });
 
-    return res.status(200).json(bienesTransformados);
+    const bienesTransformados = bienes.map((bien) => {
+      const stockActual = bien.stocks?.[0]?.cantidad || 0;
+
+      const identificadoresDisponibles = bien.detalles?.filter(det => det.estado === 'disponible') || [];
+
+      return {
+        uuid: bien.uuid,
+        tipo: bien.tipo,
+        marca: bien.marca,
+        modelo: bien.modelo,
+        descripcion: bien.descripcion,
+        precio: bien.precio,
+        stock: stockActual,
+        fotos: [
+          ...(Array.isArray(bien.fotos) ? bien.fotos : []),
+          ...(identificadoresDisponibles.map(det => det.foto).filter(Boolean) || []),
+        ],
+        identificadores: identificadoresDisponibles.map(det => ({
+          uuid: det.uuid,
+          identificador_unico: det.identificador_unico,
+          estado: det.estado,
+          foto: det.foto,
+        })),
+        createdAt: bien.createdAt, // 🔥 LO DEVOLVEMOS!
+      };
+    });
+
+    return res.status(200).json({ data: bienesTransformados });
   } catch (error) {
-    console.error('❌ Error al obtener bienes:', error);
+    console.error("❌ Error en obtenerBienesPorUsuario:", error);
     return res.status(500).json({ message: 'Error interno del servidor.', error: error.message });
   }
 };
+
+const obtenerTrazabilidadPorBien = async (req, res) => {
+  const { uuid } = req.params;
+
+  try {
+    const transacciones = await Transaccion.findAll({
+      where: { bien_uuid: uuid },
+      include: [
+        {
+          model: Usuario,
+          as: 'compradorTransaccion',
+          attributes: ['uuid', 'nombre', 'apellido', 'dni', 'email', 'cuit', 'direccion', 'empresa_uuid'],
+        },
+        {
+          model: Usuario,
+          as: 'vendedorTransaccion',
+          attributes: ['uuid', 'nombre', 'apellido', 'dni', 'email', 'cuit', 'direccion', 'empresa_uuid'],
+        },
+        {
+          model: Empresa,
+          as: 'empresaVendedora',
+          attributes: ['uuid', 'razonSocial', 'direccion'],
+        },
+        {
+          model: Bien,
+          as: 'bienTransaccion',
+          attributes: ['uuid', 'descripcion', 'marca', 'modelo', 'precio', 'fotos', 'tipo'],
+        },
+        {
+          model: DetallesBien,
+          as: 'detallesVendidos',
+          through: { attributes: [] },
+          attributes: ['uuid', 'identificador_unico', 'estado', 'foto'],
+          required: false,
+        },
+      ],
+      order: [['fecha', 'ASC']],
+    });
+
+    if (!transacciones.length) {
+      return res.status(200).json([]);
+    }
+
+    const formatDireccion = (direccion = {}) =>
+      direccion?.calle
+        ? `${direccion.calle} ${direccion.altura || ''}, ${direccion.barrio || ''}, ${direccion.departamento || ''}`
+        : 'Sin dirección';
+
+    const transaccionesTransformadas = await Promise.all(
+      transacciones.map(async (tx) => {
+        const comprador = tx.compradorTransaccion;
+        const vendedor = tx.vendedorTransaccion;
+
+        let empresaCompradora = null;
+
+        if (comprador?.empresa_uuid) {
+          empresaCompradora = await Empresa.findOne({
+            where: { uuid: comprador.empresa_uuid },
+            attributes: ['uuid', 'razonSocial', 'direccion'],
+          });
+        }
+
+        return {
+          uuid: tx.uuid,
+          fecha: tx.fecha,
+          metodoPago: tx.metodoPago,
+          cantidad: tx.cantidad,
+          monto: tx.monto,
+          precio: tx.precio,
+          fotos: tx.fotos || [],
+          identificadores: (tx.detallesVendidos || []).map(i => ({
+            uuid: i.uuid,
+            identificador_unico: i.identificador_unico,
+            estado: i.estado || 'desconocido',
+            foto: i.foto || null,
+          })),
+          bienTransaccion: {
+            uuid: tx.bienTransaccion?.uuid,
+            tipo: tx.bienTransaccion?.tipo,
+            marca: tx.bienTransaccion?.marca,
+            modelo: tx.bienTransaccion?.modelo,
+            descripcion: tx.bienTransaccion?.descripcion,
+            precio: tx.bienTransaccion?.precio,
+            fotos: tx.bienTransaccion?.fotos || [],
+          },
+          compradorTransaccion: {
+            nombre: comprador?.nombre || 'Desconocido',
+            apellido: comprador?.apellido || '',
+            dni: comprador?.dni || 'N/A',
+            email: comprador?.email || 'N/A',
+            cuit: comprador?.cuit || 'N/A',
+            direccion: formatDireccion(comprador?.direccion),
+          },
+          vendedorTransaccion: {
+            nombre: vendedor?.nombre || 'Desconocido',
+            apellido: vendedor?.apellido || '',
+            dni: vendedor?.dni || 'N/A',
+            email: vendedor?.email || 'N/A',
+            cuit: vendedor?.cuit || 'N/A',
+            direccion: formatDireccion(vendedor?.direccion),
+          },
+          empresaCompradora: empresaCompradora || null,
+          empresaVendedora: tx.empresaVendedora || null,
+        };
+      })
+    );
+
+    return res.status(200).json(transaccionesTransformadas);
+  } catch (error) {
+    console.error('❌ Error al obtener trazabilidad:', error);
+    return res.status(500).json({
+      message: 'Error al obtener trazabilidad.',
+      detalles: error.message,
+    });
+  }
+};
+
+
+
+
+
+const obtenerTrazabilidadPorIdentificador = async (req, res) => {
+  const { identificador } = req.params;
+
+  try {
+    const detalle = await DetallesBien.findOne({ where: { identificador_unico: identificador } });
+
+    if (!detalle) {
+      return res.status(404).json({ message: 'Identificador no encontrado.' });
+    }
+
+    const transacciones = await Transaccion.findAll({
+      include: [
+        {
+          model: DetallesBien,
+          as: 'detallesVendidos',
+          where: { uuid: detalle.uuid },
+          required: true,
+          through: { attributes: [] },
+          attributes: ['uuid'], // solo para filtro
+        },
+        {
+          model: Usuario,
+          as: 'compradorTransaccion',
+          attributes: ['uuid', 'nombre', 'apellido', 'dni', 'email', 'cuit', 'direccion'],
+        },
+        {
+          model: Usuario,
+          as: 'vendedorTransaccion',
+          attributes: ['uuid', 'nombre', 'apellido', 'dni', 'email', 'cuit', 'direccion'],
+        },
+        {
+          model: Empresa,
+          as: 'empresaCompradora',
+          attributes: ['uuid', 'razonSocial', 'direccion'],
+        },
+        {
+          model: Empresa,
+          as: 'empresaVendedora',
+          attributes: ['uuid', 'razonSocial', 'direccion'],
+        },
+        {
+          model: Bien,
+          as: 'bienTransaccion',
+          attributes: ['uuid', 'tipo', 'marca', 'modelo', 'descripcion', 'precio', 'fotos'],
+        }
+      ],
+      order: [['fecha', 'DESC']],
+    });
+
+    // Asegurarnos de volver a incluir los detallesVendidos completos
+    const transaccionesConDetalles = await Promise.all(
+      transacciones.map(async (tx) => {
+        const conDetalles = await Transaccion.findByPk(tx.uuid, {
+          include: [
+            {
+              model: DetallesBien,
+              as: 'detallesVendidos',
+              through: { attributes: [] },
+              attributes: ['identificador_unico', 'estado', 'foto'],
+            }
+          ]
+        });
+
+        return {
+          ...tx.toJSON(),
+          detallesVendidos: conDetalles?.detallesVendidos || [],
+        };
+      })
+    );
+
+    const formatDireccion = (direccion = {}) =>
+      direccion?.calle
+        ? `${direccion.calle} ${direccion.altura || ''}, ${direccion.barrio || ''}, ${direccion.departamento || ''}`
+        : 'Sin dirección';
+
+    const historial = transaccionesConDetalles.map(t => ({
+      uuid: t.uuid,
+      fecha: t.fecha,
+      metodoPago: t.metodoPago,
+      cantidad: t.cantidad,
+      monto: t.monto,
+      precio: t.precio,
+      fotos: t.fotos || [],
+      identificadores: (t.detallesVendidos || []).map(d => ({
+        identificador_unico: d.identificador_unico,
+        estado: d.estado,
+        foto: d.foto,
+      })),
+      bien: {
+        tipo: t.bienTransaccion?.tipo,
+        marca: t.bienTransaccion?.marca,
+        modelo: t.bienTransaccion?.modelo,
+        descripcion: t.bienTransaccion?.descripcion,
+        precio: t.bienTransaccion?.precio,
+        fotos: t.bienTransaccion?.fotos || [],
+      },
+      comprador: {
+        nombre: t.compradorTransaccion?.nombre || 'Desconocido',
+        apellido: t.compradorTransaccion?.apellido || '',
+        dni: t.compradorTransaccion?.dni || 'N/A',
+        email: t.compradorTransaccion?.email || 'N/A',
+        cuit: t.compradorTransaccion?.cuit || 'N/A',
+        direccion: formatDireccion(t.compradorTransaccion?.direccion),
+      },
+      vendedor: {
+        nombre: t.vendedorTransaccion?.nombre || 'Desconocido',
+        apellido: t.vendedorTransaccion?.apellido || '',
+        dni: t.vendedorTransaccion?.dni || 'N/A',
+        email: t.vendedorTransaccion?.email || 'N/A',
+        cuit: t.vendedorTransaccion?.cuit || 'N/A',
+        direccion: formatDireccion(t.vendedorTransaccion?.direccion),
+      },
+      empresaCompradora: t.empresaCompradora || null,
+      empresaVendedora: t.empresaVendedora || null,
+    }));
+
+    return res.status(200).json({ historial });
+
+  } catch (error) {
+    console.error('❌ Error al obtener trazabilidad por identificador:', error.message);
+    return res.status(500).json({
+      message: 'Error interno al obtener trazabilidad del identificador.',
+      error: error.message,
+    });
+  }
+};
+
+
+
+
+
+
+const obtenerBienesPorEmpresa = async (req, res) => {
+  const { uuid } = req.params;
+
+  try {
+    if (!uuid) {
+      return res.status(400).json({ message: 'Falta el UUID de la empresa.' });
+    }
+
+    const bienes = await Bien.findAll({
+      include: [
+        {
+          model: Stock,
+          as: 'stocks',
+          where: { propietario_uuid: uuid }, // ✅ SOLO stocks que pertenecen a la empresa
+          attributes: ['cantidad', 'propietario_uuid'],
+          required: true,
+        },
+        {
+          model: DetallesBien,
+          as: 'detalles',
+          attributes: ['uuid', 'identificador_unico', 'estado', 'foto'],
+          required: false,
+        }
+      ],
+      order: [['createdAt', 'DESC']],
+    });
+
+    const bienesTransformados = bienes.map((bien) => {
+      const stockPropio = bien.stocks?.[0]?.cantidad || 0;
+
+      const fotos = [
+        ...(Array.isArray(bien.fotos) ? bien.fotos : []),
+        ...(bien.detalles?.map(d => d.foto).filter(Boolean) || []),
+      ];
+
+      const identificadoresDisponibles = bien.detalles?.filter(d => d.estado === 'disponible') || [];
+
+      return {
+        uuid: bien.uuid,
+        tipo: bien.tipo,
+        marca: bien.marca,
+        modelo: bien.modelo,
+        descripcion: bien.descripcion,
+        precio: bien.precio,
+        stock: stockPropio,
+        fotos,
+        identificadores: identificadoresDisponibles,
+        createdAt: bien.createdAt,
+      };
+    });
+
+    return res.status(200).json({ data: bienesTransformados });
+  } catch (error) {
+    console.error('❌ Error al obtener bienes por empresa:', error.message);
+    return res.status(500).json({ message: 'Error interno al obtener bienes de la empresa.' });
+  }
+};
+
+
+
+// ✅ Nuevo controller: obtenerBienesPorPropietario
+
+
+
+// ✅ Controller actualizado: obtenerBienesPorPropietario con paginación + búsqueda
+const obtenerBienesPorPropietario = async (req, res) => {
+  const { propietarioUuid } = req.params;
+  const limit = parseInt(req.query.limit, 10) || 30;
+  const offset = parseInt(req.query.offset, 10) || 0;
+  const search = req.query.search || '';
+
+  try {
+    const { count, rows: bienes } = await Bien.findAndCountAll({
+      where: {
+        [Op.or]: [
+          { tipo: { [Op.iLike]: `%${search}%` } },
+          { marca: { [Op.iLike]: `%${search}%` } },
+          { modelo: { [Op.iLike]: `%${search}%` } },
+        ],
+      },
+      include: [
+        {
+          model: Stock,
+          as: 'stocks',
+          attributes: ['cantidad', 'propietario_uuid'],
+          where: { propietario_uuid: propietarioUuid },
+          required: true,
+        },
+        {
+          model: DetallesBien,
+          as: 'detalles',
+          attributes: ['uuid', 'identificador_unico', 'estado', 'foto'],
+        },
+      ],
+      order: [['createdAt', 'DESC']],
+      limit,
+      offset,
+    });
+
+    const bienesTransformados = bienes.map((bien) => {
+      const stockActual = bien.stocks?.[0]?.cantidad || 0;
+      const fotos = [
+        ...(Array.isArray(bien.fotos) ? bien.fotos : []),
+        ...(bien.detalles?.map((d) => d.foto).filter(Boolean) || []),
+      ];
+      const identificadoresDisponibles = bien.detalles?.filter((d) => d.estado === 'disponible') || [];
+
+      return {
+        uuid: bien.uuid,
+        tipo: bien.tipo,
+        marca: bien.marca,
+        modelo: bien.modelo,
+        descripcion: bien.descripcion,
+        precio: bien.precio,
+        stock: stockActual,
+        fotos,
+        identificadores: identificadoresDisponibles,
+        createdAt: bien.createdAt,
+      };
+    });
+
+    return res.status(200).json({
+      data: bienesTransformados,
+      total: count,
+      page: Math.floor(offset / limit) + 1,
+      pageSize: limit,
+    });
+  } catch (error) {
+    console.error('❌ Error al obtener bienes por propietario:', error.message);
+    return res.status(500).json({ message: 'Error interno al obtener bienes del propietario.' });
+  }
+};
+
+
+
+
+
 
 
 
@@ -371,7 +915,6 @@ const actualizarStockPorParametros = async (req, res) => {
 
     return res.status(200).json({ message: 'Stock actualizado correctamente.', bien });
   } catch (error) {
-    console.error('Error al actualizar el stock:', error);
     return res.status(500).json({ message: 'Error al actualizar el stock.', error: error.message });
   }
 };
@@ -398,13 +941,44 @@ const getBienesPorMarcaTipoModelo = async (req, res) => {
 
     return res.status(200).json(bienes);
   } catch (error) {
-    console.error('Error obteniendo bienes:', error);
     return res.status(500).json({
       message: 'Error obteniendo bienes.',
       error: error.message,
     });
   }
 };
+
+// GET /bienes/:uuid/fotos
+const getFotosDeBien = async (req, res) => {
+  const { uuid } = req.params;
+
+  try {
+    const bien = await Bien.findOne({
+      where: { uuid },
+      attributes: ['uuid'],
+      include: [
+        {
+          model: DetallesBien,
+          as: 'detalles',
+          attributes: ['foto'], // Solo las fotos
+          separate: true,
+        }
+      ]
+    });
+
+    if (!bien) {
+      return res.status(404).json({ message: 'Bien no encontrado.' });
+    }
+
+    const fotos = bien.detalles.map(d => d.foto).filter(Boolean);
+
+    res.status(200).json({ success: true, fotos });
+  } catch (error) {
+    console.error('❌ Error al obtener fotos del bien:', error);
+    res.status(500).json({ message: 'Error al obtener fotos.' });
+  }
+};
+
 const subirStockExcel = async (req, res) => {
   try {
     // Verificar si se cargó un archivo
@@ -438,7 +1012,6 @@ const subirStockExcel = async (req, res) => {
 
       // Validar que los datos necesarios estén presentes
       if (!tipo || !marca || !modelo || !vendedorId || stock === undefined) {
-        console.warn(`Fila inválida: faltan datos.`, item);
         continue; // Saltar filas con datos incompletos
       }
 
@@ -466,7 +1039,6 @@ const subirStockExcel = async (req, res) => {
 
     res.status(200).json({ message: 'Stock actualizado desde Excel con éxito' });
   } catch (error) {
-    console.error('Error al procesar el archivo Excel:', error);
     res.status(500).json({ message: 'Error al procesar el archivo Excel', error: error.message });
   }
 };
@@ -481,80 +1053,11 @@ const obtenerBienesStock = async (req, res) => {
   }
 };
 
-// Obtener trazabilidad de un bien
-const obtenerTrazabilidadPorBien = async (req, res) => {
-  const { uuid } = req.params;
 
-  try {
-    const transacciones = await Transaccion.findAll({
-      where: { bien_uuid: uuid },
-      include: [
-        {
-          model: Usuario,
-          as: 'compradorTransaccion',
-          attributes: ['uuid', 'nombre', 'apellido', 'dni', 'email', 'cuit', 'direccion'],
-        },
-        {
-          model: Usuario,
-          as: 'vendedorTransaccion',
-          attributes: ['uuid', 'nombre', 'apellido', 'dni', 'email', 'cuit', 'direccion'],
-        },
-        {
-          model: Bien,
-          as: 'bienTransaccion',
-          attributes: ['uuid', 'descripcion', 'marca', 'modelo', 'precio', 'fotos', 'tipo'],
-          include: [
-            {
-              model: DetallesBien,
-              as: 'detalles',
-              attributes: ['identificador_unico', 'estado', 'foto'],
-            },
-          ],
-        },
-      ],
-      order: [['fecha', 'DESC']],
-    });
 
-    if (!transacciones.length) {
-      return res.status(200).json({ message: 'Este bien aún no tiene transacciones.' });
-    }
 
-    // Transformar datos para extraer correctamente la dirección y evitar valores nulos
-    const transaccionesTransformadas = transacciones.map(transaccion => {
-      const comprador = transaccion.compradorTransaccion;
-      const vendedor = transaccion.vendedorTransaccion;
 
-      return {
-        ...transaccion.toJSON(),
-        compradorTransaccion: {
-          nombre: comprador?.nombre || 'Sin nombre',
-          apellido: comprador?.apellido || '',
-          dni: comprador?.dni || 'N/A',
-          email: comprador?.email || 'N/A',
-          cuit: comprador?.cuit || 'N/A',
-          direccion: comprador?.direccion
-            ? `${comprador.direccion.calle}, ${comprador.direccion.altura}, ${comprador.direccion.barrio}, ${comprador.direccion.departamento}`
-            : 'Sin dirección',
-        },
-        vendedorTransaccion: {
-          nombre: vendedor?.nombre || 'Sin nombre',
-          apellido: vendedor?.apellido || '',
-          dni: vendedor?.dni || 'N/A',
-          email: vendedor?.email || 'N/A',
-          cuit: vendedor?.cuit || 'N/A',
-          direccion: vendedor?.direccion
-            ? `${vendedor.direccion.calle}, ${vendedor.direccion.altura}, ${vendedor.direccion.barrio}, ${vendedor.direccion.departamento}`
-            : 'Sin dirección',
-        },
-      };
-    });
 
-    res.status(200).json(transaccionesTransformadas);
-  } catch (error) {
-    console.error('❌ Error al obtener trazabilidad:', error);
-    res.status(500).json({ message: 'Error al obtener trazabilidad.', detalles: error.message });
-  }
-};
 
 
 
@@ -574,7 +1077,6 @@ const obtenerBienesPorEstado = async (req, res) => {
 
       res.status(200).json(bienes);
   } catch (error) {
-      console.error('Error obteniendo bienes por estado:', error);
       res.status(500).json({ message: 'Error obteniendo bienes por estado.', error: error.message });
   }
 };
@@ -607,7 +1109,6 @@ const cambiarEstadoBien = async (req, res) => {
 
       res.status(200).json({ message: `Estado del bien actualizado a: ${nuevoEstado}`, bien });
   } catch (error) {
-      console.error('Error cambiando estado del bien:', error);
       res.status(500).json({ message: 'Error cambiando estado del bien.', error: error.message });
   }
 };
@@ -639,7 +1140,6 @@ const inicializarStock = async (req, res) => {
       stock: nuevoStock,
     });
   } catch (error) {
-    console.error('Error al inicializar stock:', error);
     res.status(500).json({ message: 'Error interno al inicializar el stock.', detalles: error.message });
   }
 };
@@ -671,7 +1171,6 @@ const registrarModelo = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('❌ Error al registrar el modelo:', error);
     res.status(500).json({ message: 'Error interno al registrar el modelo.', error: error.message });
   }
 };
@@ -701,11 +1200,10 @@ const registrarMarca = async (req, res) => {
 
     return res.status(201).json({
       message: 'Marca registrada con éxito.',
-      marca,
+      marca, 
     });
 
   } catch (error) {
-    console.error('❌ Error al registrar la marca:', error);
     res.status(500).json({ message: 'Error interno del servidor.', detalles: error.message });
   }
 };
@@ -740,7 +1238,6 @@ const obtenerMarcas = async (req, res) => {
 
     return res.status(200).json({ marcas: listaMarcas });
   } catch (error) {
-    console.error('Error al obtener marcas:', error);
     return res.status(500).json({ message: 'Error interno al obtener las marcas.' });
   }
 };
@@ -776,11 +1273,41 @@ const obtenerModelos = async (req, res) => {
 
     return res.status(200).json({ modelos: listaModelos });
   } catch (error) {
-    console.error('Error al obtener modelos:', error);
     return res.status(500).json({
       message: 'Error interno al obtener los modelos.',
       error: error.message,
     });
+  }
+};
+
+const buscarBienes = async (req, res) => {
+  const { term, page = 1, limit = 10 } = req.query;
+
+  if (!term) {
+    return res.status(400).json({ message: 'Debes proporcionar un término de búsqueda.' });
+  }
+
+  try {
+    const bienes = await Bien.findAndCountAll({
+      where: {
+        [Op.or]: [
+          { tipo: { [Op.iLike]: `%${term}%` } },
+          { marca: { [Op.iLike]: `%${term}%` } },
+          { modelo: { [Op.iLike]: `%${term}%` } },
+          { descripcion: { [Op.iLike]: `%${term}%` } },
+        ],
+      },
+      limit: parseInt(limit),
+      offset: (page - 1) * limit,
+    });
+
+    res.json({
+      total: bienes.count,
+      results: bienes.rows,
+    });
+  } catch (error) {
+    console.error('🔥 Error en buscarBienes:', error);
+    res.status(500).json({ message: 'Error interno del servidor.', error: error.message });
   }
 };
 
@@ -793,10 +1320,14 @@ const verificarIMEI = async (req, res) => {
 
       return res.status(200).json({ exists: !!existe });
   } catch (error) {
-      console.error('Error al verificar IMEI:', error);
       return res.status(500).json({ error: 'Error interno del servidor al verificar el IMEI.' });
   }
 };
+
+
+
+
+
 
 
 
@@ -812,7 +1343,6 @@ module.exports = {
   actualizarStockPorParametros,
   subirStockExcel,
   obtenerTrazabilidadPorBien,
-  obtenerBienesPorUsuario,
   obtenerBienesStock,
   obtenerBienesPorEstado,
   cambiarEstadoBien,
@@ -821,7 +1351,10 @@ module.exports = {
   registrarMarca,
   obtenerMarcas,
   obtenerModelos,
+  buscarBienes,
   verificarIMEI,
-
-
+  obtenerBienesPorEmpresa,
+  obtenerBienesPorPropietario,
+  obtenerTrazabilidadPorIdentificador,
+  getFotosDeBien,
 };
