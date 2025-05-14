@@ -60,8 +60,38 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.ARRAY(DataTypes.STRING),
       allowNull: true,
     },
+    representado_por_uuid: {
+      type: DataTypes.UUID,
+      allowNull: true,
+      references: {
+        model: 'usuarios',
+        key: 'uuid',
+      },
+      comment: 'UUID del delegado si la venta fue hecha por representación',
+    },
+
+    comprador_representado_empresa_uuid: {
+      type: DataTypes.UUID,
+      allowNull: true,
+      references: {
+        model: 'empresas', // o 'usuarios' si usás una tabla unificada
+        key: 'uuid',
+      },
+      comment: 'UUID de la empresa a la cual representa el comprador',
+    },
+    vendedor_representado_empresa_uuid: {
+      type: DataTypes.UUID,
+      allowNull: true,
+      references: {
+        model: 'empresas',
+        key: 'uuid',
+      },
+      comment: 'UUID de la empresa a la cual representa el vendedor',
+    }, 
+    
+    
     imeis: { // Nuevo campo
-      type: DataTypes.JSON, // O DataTypes.TEXT si prefieres almacenarlo como una cadena
+      type: DataTypes.JSONB,  // O DataTypes.TEXT si prefieres almacenarlo como una cadena
       allowNull: true,
       comment: 'IMEIs vendidos en esta transacción',
     },

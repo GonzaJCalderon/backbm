@@ -1,5 +1,5 @@
 module.exports = (sequelize, DataTypes) => {
-  const Usuario = sequelize.define('Usuario', {
+  return sequelize.define('Usuario', {
     uuid: {
       type: DataTypes.UUID,
       defaultValue: DataTypes.UUIDV4,
@@ -34,6 +34,11 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.ENUM('fisica', 'juridica'),
       allowNull: false,
     },
+    activo: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: true
+    },
+    
     dni: {
       type: DataTypes.STRING,
       allowNull: true,
@@ -61,7 +66,8 @@ module.exports = (sequelize, DataTypes) => {
       allowNull: true,
       validate: {
         isJsonValid(value) {
-          if (value && typeof value !== 'object') {
+          if (!value) return true; // ✅ Permitimos que sea null o undefined
+          if (typeof value !== 'object') {
             throw new Error('La dirección debe ser un objeto JSON válido.');
           }
           if (!value.calle || !value.altura || !value.departamento) {
@@ -70,19 +76,64 @@ module.exports = (sequelize, DataTypes) => {
         },
       },
     },
-    
-    
-    razonSocial: {
+
+    // 🔥 Campos del responsable para jurídicas
+    dniResponsable: {
+      type: DataTypes.STRING,
+      allowNull: true,
+    },
+    nombreResponsable: {
+      type: DataTypes.STRING,
+      allowNull: true,
+    },
+    apellidoResponsable: {
+      type: DataTypes.STRING,
+      allowNull: true,
+    },
+    cuitResponsable: {
       type: DataTypes.STRING,
       allowNull: true,
       validate: {
-        isRazonSocialRequired(value) {
+        isCuitValido(value) {
           if (this.tipo === 'juridica' && !value) {
-            throw new Error('La razón social es obligatoria para personas jurídicas.');
+            throw new Error('El CUIT del responsable es obligatorio para personas jurídicas.');
           }
         },
       },
     },
+    domicilioResponsable: {
+      type: DataTypes.JSON,
+      allowNull: true,
+      validate: {
+        isJsonValidResponsable(value) {
+          if (!value) return true; // ✅ Permitimos que no venga
+          if (typeof value !== 'object') {
+            throw new Error('El domicilio del responsable debe ser un objeto JSON válido.');
+          }
+          if (!value.calle || !value.altura || !value.departamento) {
+            throw new Error('El domicilio del responsable debe incluir calle, altura y departamento.');
+          }
+        },
+      },
+    },
+
+    empresa_uuid: {
+      type: DataTypes.UUID,
+      allowNull: true,
+      references: {
+        model: 'empresas',
+        key: 'uuid',
+      },
+    },
+
+    rolEmpresa: {
+      type: DataTypes.ENUM('responsable', 'delegado'),
+      allowNull: true,
+      validate: {
+        isIn: [['responsable', 'delegado']],
+      },
+    },
+
     rolDefinitivo: {
       type: DataTypes.STRING,
       allowNull: false,
@@ -91,8 +142,32 @@ module.exports = (sequelize, DataTypes) => {
         isIn: [['usuario', 'admin', 'moderador']],
       },
     },
+
+    delegadoDeUsuario: {
+      type: DataTypes.UUID,
+      allowNull: true,
+      references: {
+        model: 'usuarios',
+        key: 'uuid',
+      },
+    },
+    delegadoDeEmpresa: {
+      type: DataTypes.UUID,
+      allowNull: true,
+      references: {
+        model: 'empresas',
+        key: 'uuid',
+      },
+    },
+
+    mensajeBienvenidaEnviada: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
+    },
+
     aprobadoPor: {
-      type: DataTypes.UUID, // Cambiado a UUID
+      type: DataTypes.UUID,
       allowNull: true,
     },
     fechaAprobacion: {
@@ -104,7 +179,7 @@ module.exports = (sequelize, DataTypes) => {
       allowNull: true,
     },
     rechazadoPor: {
-      type: DataTypes.UUID, // Cambiado a UUID
+      type: DataTypes.UUID,
       allowNull: true,
     },
     fechaRechazo: {
@@ -125,6 +200,4 @@ module.exports = (sequelize, DataTypes) => {
     tableName: 'usuarios',
     timestamps: true,
   });
-
-  return Usuario;
 };

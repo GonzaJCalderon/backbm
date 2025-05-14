@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const transaccionesController = require('../controllers/transaccionesController');
+const { validarUuid } = require('../middlewares/validarUuid');
 
 const { verificarPermisos } = require('../middlewares/authMiddleware');
 const { uploadFotosMiddleware } = require('../middlewares/uploadFotos');
@@ -18,9 +19,9 @@ router.post('/comprar', authMiddleware, verifyToken, uploadFotosMiddleware, tran
 router.post('/vender', authMiddleware, verifyToken, uploadFotosVentaMiddleware, transaccionesController.registrarVenta);
 
 
-
-
-
+// Obtener transacciones de compras y ventas por usuario
+router.get('/usuario/:uuid/compras', validarUuid, authMiddleware, verifyToken, transaccionesController.obtenerComprasPorUsuario);
+router.get('/usuario/:uuid/ventas', validarUuid, authMiddleware, verifyToken, transaccionesController.obtenerVentasPorUsuario);
 
 
 // Obtener transacciones por bien
@@ -32,11 +33,20 @@ router.post('/', verifyToken, transaccionesController.registrarTransaccion);
 // Ruta para obtener transacciones por usuario
 router.get('/usuario/:uuid', verifyToken, transaccionesController.obtenerTransaccionesPorUsuario);
 
+// routes/transacciones.js o similar
+router.get('/usuario/:uuid/todas',transaccionesController.obtenerTodasLasTransaccionesSinPaginado);
+
+
+// Ruta para obtener transacciones por Empresa
+router.get('/empresa/:empresaUuid', verifyToken, transaccionesController.obtenerTransaccionesPorEmpresa);
+
 
 // Ruta para obtener transacciones por bien
 router.get('/bien/:bienId', verifyToken, transaccionesController.obtenerTransaccionesPorBien);
 
 // Ruta para eliminar una transacción
 router.delete('/:id', verifyToken, verificarPermisos(['administrador']), transaccionesController.eliminarTransaccion);
+
+
 
 module.exports = router;

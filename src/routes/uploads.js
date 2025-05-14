@@ -39,7 +39,6 @@ router.post('/upload', upload.array('fotos', 10), async (req, res) => {
 
     res.status(200).json({ urls }); // Responder con las URLs generadas
   } catch (error) {
-    console.error('Error en el endpoint de subida:', error);
     res.status(500).json({ message: 'Error al subir imágenes.' });
   }
 });

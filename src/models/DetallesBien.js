@@ -1,5 +1,3 @@
-// models/DetallesBien.js
-
 module.exports = (sequelize, DataTypes) => {
   const DetallesBien = sequelize.define('DetallesBien', {
     uuid: {
@@ -23,17 +21,30 @@ module.exports = (sequelize, DataTypes) => {
       unique: true,
     },
     estado: {
-      type: DataTypes.STRING, // "disponible", "vendido", etc.
+      type: DataTypes.STRING,
       allowNull: false,
       defaultValue: 'disponible',
     },
-    // NUEVO CAMPO para almacenar la foto de este IMEI
+    propietario_uuid: {
+      type: DataTypes.UUID,
+      allowNull: false,
+    },
     foto: {
       type: DataTypes.STRING,
       allowNull: true,
     },
-  },
-  {
+    transaccion_uuid: {
+      type: DataTypes.UUID,
+      allowNull: true,
+      references: {
+        model: 'transacciones',
+        key: 'uuid',
+      },
+      onDelete: 'SET NULL',
+      onUpdate: 'CASCADE',
+      comment: 'UUID de la transacción que vendió esta unidad',
+    },
+  }, {
     tableName: 'detalles_bien',
     timestamps: true,
   });

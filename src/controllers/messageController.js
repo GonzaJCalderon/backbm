@@ -2,31 +2,73 @@
 const { Op } = require("sequelize");
 const { Message, Usuario } = require("../models");
 const jwt = require('jsonwebtoken');
+const SYSTEM_UUID = "00000000-0000-0000-0000-000000000000";
+const welcomeCache = new Set(); // Reinicia con el server, es por token activo
+const config = require('../config/auth.config'); // ✅ Asegurate de usar la ruta correcta
+
 
 exports.sendMessage = async (req, res) => {
   try {
-    const { senderUuid, content } = req.body;
+    const token = req.headers.authorization?.split(' ')[1];
+    if (!token) return res.status(401).json({ message: 'Token no proporcionado' });
+
+    let decoded;
+    try {
+      decoded = jwt.verify(token, config.secret);
+    } catch (err) {
+      return res.status(403).json({ message: 'Token inválido o expirado' });
+    }
+
+    const senderUuid = decoded.uuid;
+    const { content, recipientUuid, isForAdmins = false } = req.body;
 
     if (!senderUuid || !content) {
       return res.status(400).json({ message: '❌ senderUuid y content son obligatorios.' });
     }
 
+    const usuario = await Usuario.findOne({ where: { uuid: senderUuid } });
+    if (!usuario) {
+      return res.status(404).json({ message: 'Usuario no encontrado' });
+    }
+
+    // Crear el mensaje principal
     const newMessage = await Message.create({
       senderUuid,
-      recipientUuid: null, // 🔥 NO asignamos un destinatario aún
-      isForAdmins: true, // 🔥 Es un mensaje para los administradores
+      recipientUuid,
+      assignedAdminUuid: null,
+      isForAdmins,
       content,
       isRead: false,
     });
 
-    res.status(201).json({ message: '✅ Mensaje enviado correctamente', newMessage });
+    // 👇 Solo enviar mensaje automático si NO se envió ya
+    if (!usuario.mensajeBienvenidaEnviada) {
+      const autoContent =
+        "👋 ¡Hola! Gracias por contactarnos. Te podemos ayudar con:\n\n" +
+        "🔧 *Editar un bien*\n" +
+        "🗑️ *Eliminar un bien*\n" +
+        "📊 *Consultar el estado de un bien*\n\n" +
+        "🕘 *Horario de atención:* 9:00 a 18:00 hs\n\n" +
+        "¿En qué puedo asistirte?";
 
+      await Message.create({
+        senderUuid: SYSTEM_UUID,
+        recipientUuid: senderUuid,
+        isForAdmins: false,
+        content: autoContent,
+        isRead: false,
+      });
+
+      usuario.mensajeBienvenidaEnviada = true;
+      await usuario.save();
+    }
+
+    res.status(201).json({ message: '✅ Mensaje enviado correctamente', newMessage });
   } catch (error) {
-    console.error("❌ Error al enviar mensaje:", error);
+    console.error("Error al enviar mensaje:", error);
     res.status(500).json({ error: error.message });
   }
 };
-
 
 
 exports.getMessages = async (req, res) => {
@@ -54,7 +96,6 @@ exports.getMessages = async (req, res) => {
 
     res.status(200).json(messages);
   } catch (error) {
-    console.error("❌ Error al obtener mensajes:", error);
     res.status(500).json({ error: "Error al obtener mensajes." });
   }
 };
@@ -80,7 +121,6 @@ exports.getMessagesByUser = async (req, res) => {
 
     res.status(200).json(messages);
   } catch (error) {
-    console.error("Error al obtener mensajes del usuario:", error);
     res.status(500).json({ message: "Error interno del servidor" });
   }
 };
@@ -107,7 +147,6 @@ exports.deleteConversation = async (req, res) => {
 
     return res.status(200).json({ message: 'Conversación eliminada', deleted, userUuid });
   } catch (error) {
-    console.error("Error al eliminar conversación:", error);
     return res.status(500).json({ error: "Error al eliminar conversación." });
   }
 };
@@ -125,44 +164,44 @@ exports.getUnreadMessages = async (req, res) => {
       }
     });
 
-    console.log("📩 Mensajes no leídos encontrados:", unreadMessages.length);
 
     return res.status(200).json({ unreadMessages });
 
   } catch (error) {
-    console.error("❌ Error al obtener mensajes no leídos:", error);
     return res.status(500).json({ message: "Error interno del servidor." });
   }
 };
 
+// ✅ Marcar como leídos los mensajes recibidos por el usuario
 exports.markMessagesAsRead = async (req, res) => {
   try {
     const { userUuid } = req.params;
-    const { adminUuid } = req.body;
 
-    if (!userUuid || !adminUuid) {
-      return res.status(400).json({ message: "❌ userUuid y adminUuid son requeridos." });
+    if (!userUuid) {
+      return res.status(400).json({ message: "❌ userUuid requerido." });
     }
 
-    const updated = await Message.update(
+    const [affectedRows] = await Message.update(
       { isRead: true },
       {
         where: {
-          senderUuid: userUuid,
+          recipientUuid: userUuid,
           isRead: false,
         },
       }
     );
 
-    console.log("✅ Mensajes marcados como leídos por admin:", adminUuid);
-    res.status(200).json({ message: "✅ Mensajes marcados como leídos correctamente." });
+    console.log(`🔔 Mensajes marcados como leídos: ${affectedRows}`);
+
+    res.status(200).json({
+      message: "✅ Mensajes marcados como leídos correctamente.",
+      updated: affectedRows,
+    });
 
   } catch (error) {
-    console.error("❌ Error al marcar mensajes como leídos:", error);
     res.status(500).json({ message: "Error interno del servidor" });
   }
 };
-
 
 
 
@@ -178,7 +217,6 @@ exports.getMessagesForAdmins = async (req, res) => {
 
     res.status(200).json(messages);
   } catch (error) {
-    console.error("Error al obtener mensajes para admins:", error);
     res.status(500).json({ error: "Error al obtener mensajes." });
   }
 };
@@ -209,43 +247,10 @@ exports.assignMessageToAdmin = async (req, res) => {
     res.status(200).json({ message: "✅ Mensaje asignado correctamente", message });
 
   } catch (error) {
-    console.error("❌ Error al asignar mensaje:", error);
     res.status(500).json({ error: error.message || "Error en el servidor." });
   }
 };
 
-
-exports.replyToMessage = async (req, res) => {
-  try {
-    const { messageUuid, adminUuid, content } = req.body;
-
-    // Buscar el mensaje original
-    const originalMessage = await Message.findOne({ where: { uuid: messageUuid } });
-
-    if (!originalMessage) {
-      return res.status(404).json({ message: "❌ Mensaje no encontrado." });
-    }
-
-    // 🔥 Siempre asignar el mensaje al admin que responde
-    originalMessage.assignedAdminUuid = adminUuid;
-    originalMessage.recipientUuid = adminUuid;
-    await originalMessage.save(); // ✅ Se actualiza la asignación
-
-    // Crear la respuesta del admin
-    const replyMessage = await Message.create({
-      senderUuid: adminUuid,
-      recipientUuid: originalMessage.senderUuid, // Responde al usuario original
-      content,
-      isForAdmins: false,
-    });
-
-    res.status(201).json({ message: "✅ Respuesta enviada y mensaje reasignado.", replyMessage });
-
-  } catch (error) {
-    console.error("❌ Error al responder mensaje:", error);
-    res.status(500).json({ error: "Error interno del servidor." });
-  }
-};
 
 
 
@@ -267,7 +272,6 @@ exports.getUnassignedMessages = async (req, res) => {
 
     res.status(200).json(messages);
   } catch (error) {
-    console.error("❌ Error al obtener mensajes sin asignar:", error);
     res.status(500).json({ error: "Error al obtener mensajes." });
   }
 };
@@ -283,7 +287,6 @@ exports.getMessagesForAdmin = async (req, res) => {
 
     res.status(200).json(messages);
   } catch (error) {
-    console.error("❌ Error al obtener mensajes del admin:", error);
     res.status(500).json({ error: "Error al obtener mensajes." });
   }
 };
@@ -310,10 +313,50 @@ exports.markUserMessagesAsRead = async (req, res) => {
       }
     );
 
-    console.log("✅ Mensajes del admin marcados como leídos para el usuario:", updated);
     res.status(200).json({ message: "Mensajes marcados como leídos correctamente." });
   } catch (error) {
-    console.error("❌ Error al marcar mensajes como leídos para el usuario:", error);
     res.status(500).json({ message: "Error interno del servidor." });
+  }
+};
+
+exports.replyToUser = async (req, res) => {
+  try {
+    // 🔐 Verificamos token JWT
+    const token = req.headers.authorization?.split(' ')[1];
+    if (!token) return res.status(401).json({ message: 'Token no proporcionado' });
+
+    let decoded;
+    try {
+      decoded = jwt.verify(token, config.secret);
+    } catch (err) {
+      return res.status(403).json({ message: 'Token inválido o expirado' });
+    }
+
+    const adminUuid = decoded.uuid;
+    const { recipientUuid, content } = req.body;
+
+    // ✅ Validaciones básicas
+    if (!adminUuid || !recipientUuid || !content) {
+      return res.status(400).json({ message: "Faltan datos obligatorios (adminUuid, recipientUuid, content)." });
+    }
+
+    // 🔄 Crear respuesta del admin
+    const newMessage = await Message.create({
+      senderUuid: adminUuid,
+      recipientUuid,                 // 👉 Usuario destino
+      assignedAdminUuid: adminUuid, // 👉 Admin que se hace responsable
+      isForAdmins: false,           // 👉 Ya no es mensaje general
+      content,
+      isRead: false,
+    });
+
+    return res.status(201).json({
+      message: "✅ Respuesta enviada correctamente al usuario.",
+      newMessage,
+    });
+
+  } catch (error) {
+    console.error("❌ Error al responder mensaje:", error);
+    return res.status(500).json({ message: "Error interno del servidor." });
   }
 };

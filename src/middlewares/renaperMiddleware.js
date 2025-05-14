@@ -1,5 +1,4 @@
 const validateDocumentNumber = (req, res, next) => {
-    console.log(`Validando número de documento: ${req.params.nroDoc}`);
     const nroDoc = parseInt(req.params.nroDoc);
 
     // Verificar si es un número válido

@@ -10,32 +10,55 @@
  * @returns {Function} - Middleware que valida los campos requeridos.
  */
 
-const validarCampos = (campos) => (req, res, next) => {
+const validarCampos = () => (req, res, next) => {
   try {
-    const faltantes = campos.filter((campo) => {
-      if (campo === 'direccion') {
-        const { direccion } = req.body;
-        // Verifica los campos requeridos en la dirección
-        return !direccion || !direccion.calle || !direccion.altura || !direccion.departamento;
+    const {
+      tipo,
+      nombre, apellido, direccion,
+      nombreResponsable, apellidoResponsable,
+      domicilioResponsable,
+      email, password
+    } = req.body;
+
+    const camposFaltantes = [];
+
+    // Campos comunes
+    if (!email) camposFaltantes.push('email');
+    if (!password) camposFaltantes.push('password');
+    if (!tipo) camposFaltantes.push('tipo');
+
+    if (tipo === 'fisica') {
+      if (!nombre) camposFaltantes.push('nombre');
+      if (!apellido) camposFaltantes.push('apellido');
+      if (!direccion || !direccion.calle || !direccion.altura || !direccion.departamento) {
+        camposFaltantes.push('direccion');
       }
+    }
 
-      // Para otros campos, verificamos que no estén undefined o null
-      return !req.body[campo];
-    });
+    if (tipo === 'juridica') {
+      if (!nombreResponsable) camposFaltantes.push('nombreResponsable');
+      if (!apellidoResponsable) camposFaltantes.push('apellidoResponsable');
+      if (!domicilioResponsable ||
+          !domicilioResponsable.calle ||
+          !domicilioResponsable.altura ||
+          !domicilioResponsable.departamento) {
+        camposFaltantes.push('domicilioResponsable');
+      }
+    }
 
-    if (faltantes.length > 0) {
-      console.log('Campos faltantes:', faltantes); // Log para depuración
+    if (camposFaltantes.length > 0) {
       return res.status(400).json({
-        message: `Faltan los siguientes campos: ${faltantes.join(', ')}`,
+        message: `Faltan los siguientes campos: ${camposFaltantes.join(', ')}`
       });
     }
 
     next();
   } catch (error) {
-    console.error('Error en la validación de campos:', error);
     return res.status(500).json({ message: 'Error interno en la validación.' });
   }
 };
+
+
 
 
 

@@ -12,6 +12,9 @@ router.get("/user/:userUuid", verifyToken, messagesController.getMessagesByUser)
 // ✅ RUTA: Enviar un mensaje
 router.post('/send', verifyToken, messagesController.sendMessage);
 
+router.post('/reply', verifyToken, messagesController.replyToUser);
+
+
 // ✅ RUTA: Obtener todos los mensajes (solo admins)
 router.get('/', verifyToken, messagesController.getMessages);
 

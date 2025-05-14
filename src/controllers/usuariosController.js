@@ -2,16 +2,19 @@ const fs = require('fs');
 const path = require('path');
 const bcrypt = require('bcryptjs');
 
+
+
 const { Op } = require('sequelize');
 const jwt = require('jsonwebtoken');
 
 
 require('dotenv').config();
 
-const { Usuario, Bien, Stock, Transaccion, HistorialCambios, DetallesBien, PasswordResetToken } = require('../models'); // Importa los modelos correctamente
-
+const { Usuario, Bien, Stock, Transaccion, HistorialCambios, DetallesBien, PasswordResetToken, Empresa, passwordResetToken } = require('../models'); // Importa los modelos correctamente
+const { validate: isUuid } = require('uuid');
 const { validarCampos } = require('../utils/validationUtils');
 const { enviarCorreo } = require('../services/emailService');
+const { activacionDelegadoHTML } = require('../utils/emailTemplates');
 const moment = require('moment');
 const config = require('../config/auth.config');
 
@@ -24,163 +27,158 @@ const { v4: uuidv4 } = require('uuid');
 
 
 
-// Crear un nuevo usuario
+
+/* ──────────────── CREAR USUARIO ──────────────── */
 const crearUsuario = async (req, res) => {
   try {
-    const { nombre, apellido, email, password, tipo, dni, direccion } = req.body;
-
-    // 🔹 Validar que todos los campos estén completos
-    if (!nombre || !apellido || !email || !password || !tipo || !dni || !direccion) {
-      return res.status(400).json({
-        message: 'Todos los campos obligatorios deben ser proporcionados.',
-      });
-    }
-
-    // 🔹 Verificar si el usuario ya existe por email o DNI
-    const usuarioExistente = await Usuario.findOne({
-      where: { [Op.or]: [{ email }, { dni }] },
-    });
-
-    if (usuarioExistente) {
-      return res.status(400).json({
-        message: 'Ya existe un usuario con este correo electrónico o DNI.',
-      });
-    }
-
-    // 🔹 Hashear la contraseña antes de guardarla
-    const hashedPassword = await bcrypt.hash(password, 10);
-
-    // 🔹 Crear el usuario en la base de datos
-    const nuevoUsuario = await Usuario.create({
+    const {
       nombre,
       apellido,
       email,
-      password: hashedPassword,
+      password,
       tipo,
       dni,
       direccion,
-      estado: 'pendiente', // Estado inicial
+      dniResponsable,
+      domicilioResponsable,
+      nombreResponsable,
+      apellidoResponsable,
+      cuitResponsable,
+      razonSocial,
+      direccionEmpresa,
+      rolDefinitivo = 'usuario'
+    } = req.body;
+
+    if (!email || !password || !tipo) {
+      return res.status(400).json({ message: 'Email, contraseña y tipo son obligatorios.' });
+    }
+
+    // 🔍 Validar duplicados
+    const condicionesWhere = [{ email }];
+    if (tipo === 'fisica' && dni) condicionesWhere.push({ dni });
+    if (tipo === 'juridica' && dniResponsable) condicionesWhere.push({ dni: dniResponsable });
+
+    const usuarioExistente = await Usuario.findOne({
+      where: { [Op.or]: condicionesWhere }
     });
 
-    // 🔹 URL del logo en Cloudinary (reemplaza con tu enlace)
-    const logoSrc = 'https://res.cloudinary.com/dtx5ziooo/image/upload/v1739288789/logo-png-sin-fondo_lyddzv.png';
+    if (usuarioExistente) {
+      return res.status(400).json({ message: 'Ya existe un usuario con este correo electrónico o DNI.' });
+    }
 
-    // 🔹 Plantilla HTML con la imagen desde la URL
+    // 🔐 Hashear la contraseña
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    // 🧍 Crear el usuario (primero)
+    const nuevoUsuario = await Usuario.create({
+      nombre: tipo === 'fisica' ? nombre : nombreResponsable,
+      apellido: tipo === 'fisica' ? apellido : apellidoResponsable,
+      email,
+      password: hashedPassword,
+      tipo,
+      dni: tipo === 'fisica' ? dni : dniResponsable,
+      direccion: tipo === 'fisica' ? direccion : domicilioResponsable,
+      cuit: tipo === 'juridica' ? cuitResponsable : null,
+      dniResponsable: tipo === 'juridica' ? dniResponsable : null,
+      nombreResponsable: tipo === 'juridica' ? nombreResponsable : null,
+      apellidoResponsable: tipo === 'juridica' ? apellidoResponsable : null,
+      cuitResponsable: tipo === 'juridica' ? cuitResponsable : null,
+      domicilioResponsable: tipo === 'juridica' ? domicilioResponsable : null,
+      rolEmpresa: tipo === 'juridica' ? 'responsable' : null,
+      rolDefinitivo,
+    });
+
+    let empresaCreada = null;
+
+    // 🏢 Si es tipo jurídica, creamos la empresa y asociamos al usuario
+    if (tipo === 'juridica') {
+      if (!razonSocial || !cuitResponsable || !direccionEmpresa) {
+        return res.status(400).json({ message: 'Faltan datos obligatorios para la empresa.' });
+      }
+
+      const empresaExistente = await Empresa.findOne({ where: { cuit: cuitResponsable } });
+      if (empresaExistente) {
+        return res.status(400).json({ message: 'Ya existe una empresa con ese CUIT.' });
+      }
+
+      empresaCreada = await Empresa.create({
+        razonSocial,
+        cuit: cuitResponsable,
+        direccion: direccionEmpresa,
+        email,
+        creadoPor: nuevoUsuario.uuid
+      });
+      
+      // 🔗 Asociar empresa recién creada al usuario
+      nuevoUsuario.delegadoDeEmpresa = empresaCreada.uuid;
+      nuevoUsuario.empresa_uuid = empresaCreada.uuid; // ⚠️ ¡NECESARIO para el frontend!
+      await nuevoUsuario.save();
+      // 🔥 persistimos asociación
+    }
+
+    // 📬 Enviar correo de confirmación
     const htmlContent = `
-    <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
-        <table style="width: 100%; max-width: 600px; margin: auto; border: 1px solid #ddd; border-radius: 8px; box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1); overflow: hidden;">
-            <thead>
-                <tr>
-                    <th style="background: linear-gradient(to right, #1e3a8a, #3b82f6); color: #fff; padding: 16px; text-align: center;">
-                        <div style="display: flex; align-items: center; justify-content: center; gap: 10px;">
-                            <img 
-                                src="${logoSrc}" 
-                                alt="Logo Registro de Bienes" 
-                                style="max-width: 80px; height: auto;" />
-                            <h1 style="margin: 0; font-size: 20px;">
-                              ¡Bienvenido al Sistema Provincial Preventivo de Bienes Muebles Usados!
-                            </h1>
-                        </div>
-                    </th>
-                </tr>
-            </thead>
-            <tbody>
-                <tr>
-                    <td style="padding: 16px; text-align: center;">
-                        <p>Hola <strong>${nombre}</strong>,</p>
-                        <p>
-                            Tu solicitud de registro está 
-                            <strong>pendiente de revisión</strong>. Pronto te informaremos sobre el estado de tu cuenta.
-                        </p>
-                        <p>
-                            Mientras tanto, si tienes alguna duda o consulta, no dudes en contactarnos. Estamos aquí para ayudarte.
-                        </p>
-                        <p style="color: #888; font-size: 0.9em; margin-top: 20px;">
-                            Atentamente,<br>
-                            El equipo del Sistema Provincial Preventivo de Bienes Muebles Usados.
-                        </p>
-                    </td>
-                </tr>
-            </tbody>
-        </table>
-    </div>
+      <div style="font-family: Arial; padding: 16px">
+        <h2>Hola ${nuevoUsuario.nombre},</h2>
+        <p>Tu solicitud ha sido recibida y está pendiente de aprobación.</p>
+      </div>
     `;
 
-    // 🔹 Enviar el correo con la plantilla HTML que incluye la imagen de Cloudinary
-    await enviarCorreo(
-      email,
-      'Solicitud Pendiente en el Sistema Provincial Preventivo de Registro de Bienes Muebles Usados',
-      `Hola ${nombre}, tu solicitud está pendiente de revisión.`,
-      htmlContent
-    );
+    await enviarCorreo(email, 'Registro recibido', 'Pendiente de aprobación', htmlContent);
 
-    // 🔹 Responder con éxito
-    res.status(201).json({
-      message: 'Usuario creado y correo enviado exitosamente.',
+    return res.status(201).json({
+      message: 'Usuario y empresa creados con éxito.',
       usuario: nuevoUsuario,
+      empresa: empresaCreada
     });
 
   } catch (error) {
-    console.error('Error al crear usuario o enviar correo:', error);
-    res.status(500).json({ message: 'Error interno del servidor.', detalles: error.message });
+    console.error('❌ Error en crearUsuario:', error);
+    return res.status(500).json({
+      message: 'Error interno del servidor.',
+      detalles: error.message
+    });
   }
 };
 
-
-
-
+/* ──────────────── LOGIN ──────────────── */
 const login = async (req, res) => {
   const { email, password } = req.body;
-
   try {
     const usuario = await Usuario.findOne({ where: { email } });
 
-    if (!usuario) {
-      return res.status(404).json({ message: 'Usuario no encontrado.' });
+    if (!usuario || !(await bcrypt.compare(password, usuario.password))) {
+      return res.status(401).json({ message: 'Credenciales inválidas.' });
     }
 
-    const esPasswordCorrecto = await bcrypt.compare(password, usuario.password);
-    if (!esPasswordCorrecto) {
-      return res.status(401).json({ message: 'Contraseña incorrecta.' });
+    const jwtSecret = process.env.JWT_SECRET;
+    if (!jwtSecret) {
+      throw new Error('JWT_SECRET no está definido en las variables de entorno.');
     }
 
-    console.log("🔍 Usuario encontrado en la BD:", usuario.toJSON());
-    console.log("🔍 Verificando rolDefinitivo:", usuario.rolDefinitivo);
-
-    // 🚀 Si `rolDefinitivo` es `NULL`, asignar un valor predeterminado
-    if (!usuario.rolDefinitivo) {
-      console.warn('⚠️ Usuario sin rol definido, asignando "usuario" por defecto');
-      usuario.rolDefinitivo = 'usuario';
+    // 👇 Buscar empresa solo si el usuario tiene empresa asociada
+    let razonSocial = null;
+    if (usuario.empresa_uuid) {
+      const empresa = await Empresa.findOne({ where: { uuid: usuario.empresa_uuid } });
+      razonSocial = empresa?.razonSocial || null;
     }
 
-    // Generar token principal (JWT) con rolDefinitivo
-    const token = jwt.sign(
-      { uuid: usuario.uuid, email: usuario.email, rolDefinitivo: usuario.rolDefinitivo || 'usuario' },
-      config.secret,
-      { expiresIn: '1h' }
-    );
+    const token = jwt.sign({
+      uuid: usuario.uuid,
+      email: usuario.email,
+      tipo: usuario.tipo,
+      rolDefinitivo: usuario.rolDefinitivo,
+      empresaUuid: usuario.empresa_uuid || null,
+      rolEmpresa: usuario.rolEmpresa || null,
+    }, jwtSecret, { expiresIn: '30m' });
+
+    const refreshSecret = process.env.REFRESH_SECRET_KEY || 'refresh_bienes';
+    const refreshToken = jwt.sign({ uuid: usuario.uuid }, refreshSecret, { expiresIn: '7d' });
     
-    
 
-    // Generar refresh token
-    const refreshToken = jwt.sign(
-      { uuid: usuario.uuid },
-      config.secret,
-      { expiresIn: config.jwtRefreshExpiration }
-    );
 
-    console.log("📢 Token generado:", token);
-    console.log("📢 Token decodificado:", jwt.decode(token));
-
-    // Construir objeto de dirección
-    const direccion = usuario.direccion || {
-      calle: '',
-      altura: '',
-      barrio: '',
-      departamento: '',
-    };
-
-    const response = {
+    // ✅ Enviamos razonSocial también
+    res.status(200).json({
       usuario: {
         uuid: usuario.uuid,
         nombre: usuario.nombre,
@@ -188,22 +186,93 @@ const login = async (req, res) => {
         email: usuario.email,
         dni: usuario.dni,
         rolDefinitivo: usuario.rolDefinitivo,
-        direccion,
+        empresaUuid: usuario.empresa_uuid || null,
+        tipo: usuario.tipo || null,
+        rolEmpresa: usuario.rolEmpresa || null,
+        razonSocial: razonSocial, // ← AHORA SÍ 🎯
       },
       token,
       refreshToken,
-    };
+    });
 
-    console.log("✅ Respuesta final del backend:", JSON.stringify(response, null, 2));
-
-    res.status(200).json(response);
   } catch (error) {
-    console.error('❌ Error en el login:', error.message);
-    res.status(500).json({ message: 'Error interno del servidor.' });
+    console.error('❌ Error en login:', error);
+    res.status(500).json({ message: 'Error en login.', error: error.message });
   }
 };
 
+const registrarDelegadoEmpresa = async (req, res) => {
+  try {
+    const { nombre, apellido, email, dni, cuit, direccion } = req.body;
+    const empresaUuid = req.user?.empresaUuid || req.user?.uuid;
 
+    console.log('🧠 Usuario en token:', req.user);
+    console.log('🏢 empresaUuid detectado:', empresaUuid);
+
+    if (!empresaUuid) {
+      return res.status(401).json({ message: 'Usuario no autorizado. Falta empresaUuid.' });
+    }
+
+    const empresa = await Empresa.findByPk(empresaUuid);
+    if (!empresa) {
+      return res.status(404).json({ message: 'Empresa no encontrada. No se puede registrar delegado.' });
+    }
+
+    if (!nombre || !apellido || !email || !dni || !direccion) {
+      return res.status(400).json({ message: 'Faltan datos obligatorios.' });
+    }
+
+    const existeEmail = await Usuario.findOne({ where: { email } });
+    if (existeEmail) {
+      return res.status(409).json({ message: 'Este email ya está registrado.' });
+    }
+
+    const defaultPassword = await bcrypt.hash('temporal_' + Date.now(), 10);
+
+    const nuevoDelegado = await Usuario.create({
+      uuid: uuidv4(),
+      nombre,
+      apellido,
+      email,
+      dni,
+      cuit: cuit || '',
+      direccion,
+      tipo: 'fisica',
+      estado: 'pendiente',
+      password: defaultPassword,
+      rolDefinitivo: 'usuario',
+      delegadoDeEmpresa: empresaUuid,
+      empresa_uuid: empresaUuid, // ✅ ¡AGREGALO AQUÍ!
+      rolEmpresa: 'delegado',
+    });
+    
+
+    const token = jwt.sign(
+      { uuid: nuevoDelegado.uuid },  // ✅ Acá ya está bien
+      process.env.JWT_SECRET,
+      { expiresIn: '1d' }
+    );
+    
+
+    const enlace = `${process.env.FRONTEND_URL}/usuarios/update-account/${token}`;
+    const html = activacionDelegadoHTML({ nombre, enlace });
+
+    await enviarCorreo(
+      email,
+      'Fuiste registrado como delegado de empresa',
+      `Hola ${nombre}, haz clic para completar tu cuenta`,
+      html
+    );
+
+    res.status(201).json({
+      message: 'Delegado registrado correctamente. Se envió el mail de activación.',
+      usuario: nuevoDelegado,
+    });
+  } catch (err) {
+    console.error('❌ Error al registrar delegado:', err);
+    res.status(500).json({ message: 'Error interno del servidor', error: err.message });
+  }
+};
 
 
 const obtenerUsuarios = async (req, res) => {
@@ -213,7 +282,6 @@ const obtenerUsuarios = async (req, res) => {
     });
     res.status(200).json(usuarios);
   } catch (error) {
-    console.error('Error obteniendo usuarios:', error);
     res.status(500).json({ message: 'Error interno del servidor.' });
   }
 };
@@ -226,39 +294,62 @@ const obtenerCompradores = async (req, res) => {
     });
     res.status(200).json(compradores);
   } catch (error) {
-    console.error('Error al obtener compradores:', error);
     res.status(500).json({ message: 'Error al obtener compradores.', error: error.message });
   }
 };
 
-
 const registerUsuarioPorTercero = async (req, res) => {
   try {
-    const { dni, email, nombre, apellido, tipo, razonSocial, cuit, direccion } = req.body;
+    const {
+      dni,
+      email,
+      nombre,
+      apellido,
+      tipo,
+      razonSocial,
+      cuit,
+      direccion,
 
+      // ✅ Nuevos campos para persona jurídica
+      dniResponsable,
+      nombreResponsable,
+      apellidoResponsable,
+      cuitResponsable,
+      domicilioResponsable,
+    } = req.body;
+
+    // Validación común
     if (!dni || !email || !nombre || !apellido) {
       return res.status(400).json({
         mensaje: 'Faltan campos obligatorios: DNI, email, nombre y apellido son requeridos.',
       });
     }
 
+    // Validación especial para personas jurídicas
+    if (tipo === 'juridica') {
+      if (!razonSocial || !cuit) {
+        return res.status(400).json({ mensaje: 'Razon social y CUIT son obligatorios para personas jurídicas.' });
+      }
+
+      if (!dniResponsable || !nombreResponsable || !apellidoResponsable || !cuitResponsable || !domicilioResponsable) {
+        return res.status(400).json({
+          mensaje: 'Faltan datos del responsable de la persona jurídica.',
+        });
+      }
+    }
+
+    // Validar que el email y el DNI no estén duplicados
     const existingUserByEmail = await Usuario.findOne({ where: { email } });
     if (existingUserByEmail) {
-      return res.status(400).json({
-        mensaje: 'El email ya está registrado. Intenta con otro correo electrónico.',
-      });
+      return res.status(400).json({ mensaje: 'El email ya está registrado. Intenta con otro correo electrónico.' });
     }
 
     const existingUserByDNI = await Usuario.findOne({ where: { dni } });
     if (existingUserByDNI) {
-      return res.status(400).json({
-        mensaje: 'El DNI ya está registrado.',
-      });
+      return res.status(400).json({ mensaje: 'El DNI ya está registrado.' });
     }
 
     const defaultPassword = await bcrypt.hash('temporal_' + Date.now(), 10);
-
-    // Generar el UUID manualmente con uuidv4
     const userUuid = uuidv4();
 
     const nuevoUsuario = await Usuario.create({
@@ -271,25 +362,31 @@ const registerUsuarioPorTercero = async (req, res) => {
       razonSocial: tipo === 'juridica' ? razonSocial : null,
       cuit,
       direccion,
+
+      // ✅ Agregamos responsable si es juridica
+      dniResponsable: tipo === 'juridica' ? dniResponsable : null,
+      nombreResponsable: tipo === 'juridica' ? nombreResponsable : null,
+      apellidoResponsable: tipo === 'juridica' ? apellidoResponsable : null,
+      cuitResponsable: tipo === 'juridica' ? cuitResponsable : null,
+      domicilioResponsable: tipo === 'juridica' ? domicilioResponsable : null,
+
       estado: 'pendiente',
       password: defaultPassword,
+      delegadoDe: req.user?.uuid || null, // Asociar al creador si está logueado
     });
-
     const token = jwt.sign(
-      { userUuid: nuevoUsuario.uuid },
+      { uuid: nuevoUsuario.uuid },  // ✅ CORRECTO
       process.env.JWT_SECRET,
       { expiresIn: '1d' }
     );
-
-    console.log('Token generado:', token);
-    console.log('Payload utilizado:', { userUuid: nuevoUsuario.uuid });
+    
+    
+    
+    
 
     const enlace = `${process.env.FRONTEND_URL}/usuarios/update-account/${token}`;
-
-    // 🔹 URL del logo en Cloudinary (reemplaza con tu enlace)
     const logoSrc = 'https://res.cloudinary.com/dtx5ziooo/image/upload/v1739288789/logo-png-sin-fondo_lyddzv.png';
 
-    // 🔹 Diseño HTML actualizado (imagen desde la URL)
     const htmlContent = `
       <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
         <table style="width: 100%; max-width: 600px; margin: auto; border: 1px solid #ddd; border-radius: 8px; box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1); overflow: hidden;">
@@ -297,14 +394,8 @@ const registerUsuarioPorTercero = async (req, res) => {
             <tr>
               <th style="background: linear-gradient(to right, #1e3a8a, #3b82f6); color: #fff; padding: 16px; text-align: center;">
                 <div style="display: flex; align-items: center; justify-content: center; gap: 10px;">
-                  <img
-                    src="${logoSrc}"
-                    alt="Logo Registro de Bienes"
-                    style="max-width: 80px; height: auto;"
-                  />
-                  <h1 style="margin: 0; font-size: 20px;">
-                    ¡Bienvenido al Sistema Provincial Preventivo de Registro de Bienes Muebles Usados!
-                  </h1>
+                  <img src="${logoSrc}" alt="Logo" style="max-width: 80px; height: auto;" />
+                  <h1 style="margin: 0; font-size: 20px;">Registro de Bienes Muebles Usados</h1>
                 </div>
               </th>
             </tr>
@@ -313,97 +404,116 @@ const registerUsuarioPorTercero = async (req, res) => {
             <tr>
               <td style="padding: 16px; text-align: center;">
                 <p>Hola <strong>${nombre}</strong>,</p>
-                <p>
-                  Has sido registrado en nuestra plataforma. Para completar tu registro y actualizar tu contraseña, haz clic en el siguiente enlace:
-                </p>
+                <p>Has sido registrado como delegado. Para completar tu registro y crear tu contraseña, haz clic en el siguiente botón:</p>
                 <p>
                   <a href="${enlace}" style="display: inline-block; padding: 12px 24px; background-color: #1e88e5; color: #fff; text-decoration: none; border-radius: 4px;">Actualizar Cuenta</a>
                 </p>
-                <p>
-                  Si no solicitaste este registro, ignora este mensaje.
-                </p>
+                <p>Si no solicitaste este registro, ignora este mensaje.</p>
                 <p style="color: #888; font-size: 0.9em; margin-top: 20px;">
-                  Atentamente,<br>
-                  El equipo del Sistema Provincial Preventivo de Bienes Muebles Usados.
+                  Atentamente,<br>Equipo de Bienes Muebles Usados.
                 </p>
               </td>
             </tr>
           </tbody>
-          <tfoot>
-            </tr>
-          </tfoot>
         </table>
       </div>
     `;
 
-    // 🔹 Enviar correo con HTML que incluye la imagen de Cloudinary
     await enviarCorreo(
       email,
-      'Completa tu registro en el Sistema Provincial Preventivo de Registro de Bienes Muebles Usados',
+      'Completa tu registro - Delegado de Bienes Muebles Usados',
       `Hola ${nombre}, haz clic en el enlace para completar tu registro.`,
       htmlContent
     );
 
     res.status(201).json({
-      mensaje: 'Usuario registrado y correo enviado con éxito.',
+      mensaje: 'Usuario delegado registrado correctamente.',
       usuario: nuevoUsuario,
     });
+
   } catch (error) {
     console.error('Error al registrar usuario por tercero:', error);
     res.status(500).json({
-      mensaje: 'Error interno al registrar el usuario.',
+      mensaje: 'Error interno al registrar delegado.',
       detalles: error.message,
     });
   }
 };
 
 
+
 const updateAccount = async (req, res) => {
-  const { token } = req.params; // Extrae el token de los parámetros de la URL
+  const { token } = req.params;
 
   try {
-    // Verificar y decodificar el token
+    // ✅ Verificar el token JWT
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    console.log('Token decodificado:', decoded);
+    const { uuid } = decoded;
 
-    // Extraer la propiedad userUuid del token
-    const { userUuid } = decoded;
-    if (!userUuid) {
+    console.log('🧩 Token decodificado correctamente:', decoded);
+
+    // ❌ Error original: usabas `userUuid` que no existía
+    if (!uuid) {
       return res.status(400).json({ mensaje: 'Token inválido: no contiene UUID.' });
     }
 
-    console.log('UUID decodificado:', userUuid);
-
-    // Buscar al usuario en la base de datos usando el userUuid
-    // -- Ajusta "userUuid" en el WHERE por el nombre de la columna de tu tabla (o modelo).
-    //    Si tu columna se llama "uuid", entonces usa: { where: { uuid: userUuid } }
-    const usuario = await Usuario.findOne({ where: { userUuid } });
-    console.log('Usuario encontrado:', usuario);
+    // 🔍 Buscar el usuario con el UUID del token
+    const usuario = await Usuario.findOne({ where: { uuid: decoded.uuid } });
 
     if (!usuario) {
       return res.status(404).json({ mensaje: 'Usuario no encontrado.' });
     }
 
-    // Actualizar datos del usuario
-    const { nombre, apellido, newPassword } = req.body;
+    // ✅ Obtener los campos enviados desde el formulario
+    const {
+      nombre,
+      apellido,
+      email,
+      newPassword,
+      direccion, // opcional
+    } = req.body;
 
-    if (!nombre || !apellido || !newPassword) {
-      return res.status(400).json({ mensaje: 'Nombre, apellido y contraseña son obligatorios.' });
+    // 🧪 Validaciones mínimas
+    if (!nombre || !apellido || !email) {
+      return res.status(400).json({
+        mensaje: 'Nombre, apellido y email son obligatorios.',
+      });
     }
 
-    // Asignar valores
+    // 📝 Actualizar campos del usuario
     usuario.nombre = nombre;
     usuario.apellido = apellido;
-    usuario.password = await bcrypt.hash(newPassword, 10);
-    usuario.estado = 'aprobado'; // Cambia el estado si tu lógica lo requiere
+    usuario.email = email;
 
-    // Guardar cambios
+    if (newPassword) {
+      usuario.password = await bcrypt.hash(newPassword, 10);
+    }
+
+    if (direccion && typeof direccion === 'object') {
+      usuario.direccion = {
+        ...usuario.direccion,
+        ...direccion, // mergea con la anterior
+      };
+    }
+
+    // 🟢 Activamos la cuenta
+    usuario.estado = 'aprobado';
+
     await usuario.save();
 
-    return res.status(200).json({ mensaje: 'Cuenta actualizada con éxito.' });
-
+    return res.status(200).json({
+      mensaje: 'Cuenta actualizada con éxito.',
+      usuario: {
+        uuid: usuario.uuid, // ✅ corregido
+        nombre: usuario.nombre,
+        apellido: usuario.apellido,
+        email: usuario.email,
+        direccion: usuario.direccion || {},
+        estado: usuario.estado,
+      },
+    });
   } catch (error) {
-    console.error('Error al procesar el token:', error);
+    console.error('❌ Error al actualizar cuenta:', error);
 
     if (error.name === 'TokenExpiredError') {
       return res.status(401).json({ mensaje: 'Token expirado.' });
@@ -411,10 +521,11 @@ const updateAccount = async (req, res) => {
 
     return res.status(400).json({
       mensaje: 'Token inválido o error interno.',
-      detalles: error.message
+      detalles: error.message,
     });
   }
 };
+
 
 // Función para restablecer la contraseña con el token
 const resetPassword = async (req, res) => {
@@ -439,7 +550,6 @@ const resetPassword = async (req, res) => {
 
       return res.json({ message: 'Contraseña restablecida con éxito.' });
   } catch (error) {
-      console.error('Error en resetPassword:', error);
       return res.status(500).json({ message: 'Error interno del servidor.' });
   }
 };
@@ -459,7 +569,6 @@ const aprobarUsuario = async (req, res) => {
 
     res.status(200).json({ message: 'Usuario aprobado correctamente', usuario });
   } catch (error) {
-    console.error('Error al aprobar usuario:', error);
     res.status(500).json({ message: 'Error al aprobar usuario.', error: error.message });
   }
 };
@@ -475,33 +584,24 @@ const cambiarEstadoUsuario = async (req, res) => {
     rechazadoPor,
   } = req.body;
 
-  console.log(`\n=== Cambiar estado del usuario ===`);
-  console.log(`UUID recibido: ${uuid}`);
-  console.log('Payload recibido:', req.body);
 
   try {
-    console.log(`Buscando usuario con UUID: ${uuid}`);
     const usuario = await Usuario.findOne({ where: { uuid } });
     if (!usuario) {
-      console.error(`Usuario con UUID ${uuid} no encontrado`);
       return res.status(404).json({ message: 'Usuario no encontrado' });
     }
 
-    console.log('Usuario encontrado:', usuario);
 
-    console.log(`Actualizando estado del usuario a: ${estado}`);
     usuario.estado = estado;
 
     // URL del logo
     const logoSrc = 'https://res.cloudinary.com/dtx5ziooo/image/upload/v1739288789/logo-png-sin-fondo_lyddzv.png';
 
     if (estado === 'aprobado') {
-      console.log('Procesando aprobación...');
       usuario.fechaAprobacion = fechaAprobacion || new Date().toISOString();
       usuario.aprobadoPor = aprobadoPor;
 
       if (usuario.email) {
-        console.log(`Enviando correo de aprobación a: ${usuario.email}`);
         const subject = 'Su cuenta ha sido aprobada';
 
         const htmlContent = `
@@ -542,21 +642,17 @@ const cambiarEstadoUsuario = async (req, res) => {
 
         try {
           await enviarCorreo(usuario.email, subject, `Hola ${usuario.nombre}, su cuenta ha sido aprobada.`, htmlContent);
-          console.log(`Correo de aprobación enviado a: ${usuario.email}`);
         } catch (emailError) {
-          console.error('Error al enviar correo de aprobación:', emailError);
         }
       }
     }
 
     if (estado === 'rechazado') {
-      console.log('Procesando rechazo...');
       usuario.fechaRechazo = fechaRechazo || new Date().toISOString();
       usuario.rechazadoPor = rechazadoPor;
       usuario.motivoRechazo = motivoRechazo;
 
       if (usuario.email) {
-        console.log(`Enviando correo de rechazo a: ${usuario.email}`);
         const subject = 'Su cuenta ha sido rechazada';
 
         const reintentarRegistroLink = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/usuarios/${usuario.uuid}/reintentar`;
@@ -603,22 +699,18 @@ const cambiarEstadoUsuario = async (req, res) => {
 
         try {
           await enviarCorreo(usuario.email, subject, `Hola ${usuario.nombre}, su cuenta ha sido rechazada. Motivo: "${motivoRechazo}"`, htmlContent);
-          console.log(`Correo de rechazo enviado a: ${usuario.email}`);
         } catch (emailError) {
-          console.error('Error al enviar correo de rechazo:', emailError);
         }
       }
     }
 
     await usuario.save();
-    console.log(`Usuario ${uuid} actualizado a estado ${estado}`);
 
     return res.status(200).json({
       message: `Usuario ${estado} correctamente`,
       usuario,
     });
   } catch (error) {
-    console.error('Error al cambiar estado del usuario:', error);
     return res.status(500).json({ message: 'Error interno al cambiar estado del usuario.' });
   }
 };
@@ -630,8 +722,6 @@ const reintentarRegistro = async (req, res) => {
   const { nombre, apellido, email, dni, direccion } = req.body;
 
   try {
-    console.log('UUID recibido:', uuid);
-    console.log('Datos recibidos:', req.body);
 
     const usuario = await Usuario.findOne({ where: { uuid } });
 
@@ -660,13 +750,11 @@ const reintentarRegistro = async (req, res) => {
 
     await usuario.save();
 
-    console.log('Usuario actualizado:', usuario);
     res.status(200).json({
       message: 'Registro reenviado correctamente para su revisión.',
       usuario,
     });
   } catch (error) {
-    console.error('Error al reenviar registro:', error);
     res.status(500).json({ message: 'Error interno al reenviar registro.' });
   }
 };
@@ -676,14 +764,19 @@ const reintentarRegistro = async (req, res) => {
 // Obtener usuarios por estado
 const obtenerUsuariosPorEstado = async (req, res) => {
   const { estado } = req.query;
+  console.log('👉 Estado recibido:', estado);
 
-  if (!estado) {
-    console.error('El parámetro "estado" es obligatorio.');
-    return res.status(400).json({ message: 'El parámetro "estado" es obligatorio.' });
+  // Validación de estados permitidos
+  const estadosValidos = ['pendiente', 'rechazado', 'aprobado'];
+  if (!estado || !estadosValidos.includes(estado)) {
+    return res.status(400).json({
+      message: 'El parámetro "estado" es obligatorio y debe ser: "pendiente", "rechazado" o "aprobado".',
+    });
   }
 
   try {
-    // Consultar usuarios con el estado especificado
+    console.log(`🔍 Buscando usuarios con estado: ${estado}`);
+
     const usuarios = await Usuario.findAll({
       where: { estado },
       attributes: [
@@ -695,6 +788,9 @@ const obtenerUsuariosPorEstado = async (req, res) => {
         'direccion',
         'estado',
         'rolDefinitivo',
+        'rolEmpresa',
+        'delegadoDeEmpresa',   // ✅ corregido
+        'delegadoDeUsuario',   // ✅ corregido
         'aprobadoPor',
         'fechaAprobacion',
         'rechazadoPor',
@@ -703,74 +799,59 @@ const obtenerUsuariosPorEstado = async (req, res) => {
         'createdAt',
         'updatedAt',
       ],
+      include: [
+        {
+          model: Empresa,
+          as: 'empresa',
+          attributes: ['uuid', 'razonSocial', 'cuit', 'email']
+        }
+      ]
     });
 
-    console.log(`Usuarios encontrados con estado "${estado}":`, usuarios.length);
+    if (!usuarios.length) return res.status(200).json([]);
 
-    if (!usuarios.length) {
-      console.log(`No se encontraron usuarios con el estado: ${estado}`);
-      return res.status(200).json([]);
-    }
+    // Obtener nombres de aprobadores y rechazadores
+    const aprobadoresIds = [...new Set(usuarios.map(u => u.aprobadoPor).filter(Boolean))];
+    const rechazadoresIds = [...new Set(usuarios.map(u => u.rechazadoPor).filter(Boolean))];
 
-    // Formatear cada usuario
-    const usuariosFormateados = await Promise.all(
-      usuarios.map(async (usuario) => {
-        let direccionFormateada = null;
+    const [aprobadores, rechazadores] = await Promise.all([
+      Usuario.findAll({ where: { uuid: aprobadoresIds }, attributes: ['uuid', 'nombre', 'apellido'] }),
+      Usuario.findAll({ where: { uuid: rechazadoresIds }, attributes: ['uuid', 'nombre', 'apellido'] }),
+    ]);
 
-        // Intentar parsear la dirección si es una cadena
-        try {
-          direccionFormateada = typeof usuario.direccion === 'string'
-            ? JSON.parse(usuario.direccion)
-            : usuario.direccion;
-        } catch (e) {
-          console.error('Error al parsear dirección:', e);
-          direccionFormateada = usuario.direccion;
-        }
+    const aprobadoresMap = Object.fromEntries(aprobadores.map(user => [user.uuid, `${user.nombre} ${user.apellido}`]));
+    const rechazadoresMap = Object.fromEntries(rechazadores.map(user => [user.uuid, `${user.nombre} ${user.apellido}`]));
 
-        // Obtener el nombre y apellido del usuario que rechazó
-        let rechazadoPorNombreApellido = usuario.rechazadoPor;
-        if (usuario.rechazadoPor) {
-          const rechazador = await Usuario.findOne({
-            where: { uuid: usuario.rechazadoPor },
-            attributes: ['nombre', 'apellido'],
-          });
+    const usuariosFormateados = usuarios.map(usuario => {
+      let direccionFormateada = null;
 
-          if (rechazador) {
-            rechazadoPorNombreApellido = `${rechazador.nombre} ${rechazador.apellido}`;
-          }
-        }
+      try {
+        direccionFormateada = typeof usuario.direccion === 'string'
+          ? JSON.parse(usuario.direccion)
+          : usuario.direccion;
+      } catch {
+        direccionFormateada = usuario.direccion;
+      }
 
-        // Obtener el nombre y apellido del usuario que aprobó
-        let aprobadoPorNombreApellido = usuario.aprobadoPor;
-        if (usuario.aprobadoPor) {
-          const aprobador = await Usuario.findOne({
-            where: { uuid: usuario.aprobadoPor },
-            attributes: ['nombre', 'apellido'],
-          });
+      return {
+        ...usuario.toJSON(),
+        direccion: direccionFormateada,
+        aprobadoPor: aprobadoresMap[usuario.aprobadoPor] || null,
+        rechazadoPor: rechazadoresMap[usuario.rechazadoPor] || null,
+      };
+    });
 
-          if (aprobador) {
-            aprobadoPorNombreApellido = `${aprobador.nombre} ${aprobador.apellido}`;
-          }
-        }
-
-        return {
-          ...usuario.toJSON(),
-          direccion: direccionFormateada,
-          rechazadoPor: rechazadoPorNombreApellido,
-          aprobadoPor: aprobadoPorNombreApellido,
-        };
-      })
-    );
-
-    res.status(200).json(usuariosFormateados);
+    return res.status(200).json(usuariosFormateados);
   } catch (error) {
-    console.error('Error al obtener usuarios por estado:', error.message);
-    res.status(500).json({
+    console.error('🔥 Error en obtenerUsuariosPorEstado:', error);
+    return res.status(500).json({
       message: 'Error al obtener usuarios por estado.',
       detalles: error.message,
+      stack: error.stack,
     });
   }
 };
+
 
 
 
@@ -872,7 +953,6 @@ const actualizarUsuario = async (req, res) => {
       usuario,
     });
   } catch (error) {
-    console.error('Error al actualizar usuario:', error.message);
     res.status(500).json({ message: 'Error al actualizar usuario.', detalles: error.message });
   }
 };
@@ -880,37 +960,63 @@ const actualizarUsuario = async (req, res) => {
 
 // Eliminar usuario
 const eliminarUsuario = async (req, res) => {
-  const { uuid } = req.params;
-
   try {
+    const { uuid } = req.params;
+    const userRequesting = req.user;
+
     const usuario = await Usuario.findOne({ where: { uuid } });
     if (!usuario) {
       return res.status(404).json({ message: 'Usuario no encontrado' });
     }
 
-    await usuario.destroy();
-    res.json({ message: 'Usuario eliminado correctamente' });
-  } catch (error) {
-    console.error('Error al eliminar usuario:', error);
-    res.status(500).json({ message: 'Error al eliminar usuario.', error: error.message });
-  }
-};
+    // ⚠️ Verificamos permisos
+    const isAdmin = userRequesting.rolDefinitivo === 'admin';
+    const esResponsableYDelegado = (
+      userRequesting.tipo === 'juridica' &&
+      !userRequesting.empresaUuid &&
+      usuario.delegadoDe === userRequesting.uuid
+    );
 
-const obtenerUsuarioPorId = async (req, res) => {
-  const { uuid } = req.params;
-
-  try {
-    const usuario = await Usuario.findOne({ where: { uuid } }); // Cambiado de `findByPk(id)`
-    if (!usuario) {
-      return res.status(404).json({ message: 'Usuario no encontrado.' });
+    if (!isAdmin && !esResponsableYDelegado) {
+      return res.status(403).json({ message: 'No autorizado para eliminar este usuario.' });
     }
 
-    res.json(usuario);
+    await usuario.destroy();
+    res.status(200).json({ message: 'Usuario eliminado correctamente' });
   } catch (error) {
-    console.error('Error al obtener usuario por ID:', error);
-    res.status(500).json({ message: 'Error al obtener usuario.', error: error.message });
+    console.error('Error al eliminar usuario:', error);
+    res.status(500).json({ message: 'Error al eliminar usuario.' });
   }
 };
+
+
+
+
+const getUsuarioByUuid = async (req, res) => {
+  const { uuid } = req.params;
+
+  // ✅ Validación previa
+  if (!uuid || !isUuid(uuid)) {
+    return res.status(400).json({ mensaje: 'UUID inválido o no proporcionado.' });
+  }
+
+  try {
+    const usuario = await Usuario.findOne({
+      where: { uuid },
+      attributes: ['uuid', 'nombre', 'apellido', 'email', 'dni', 'direccion', 'rolDefinitivo']
+    });
+
+    if (!usuario) {
+      return res.status(404).json({ mensaje: 'Usuario no encontrado.' });
+    }
+
+    return res.status(200).json({ usuario });
+  } catch (error) {
+    return res.status(500).json({ mensaje: 'Error al obtener el usuario.', error: error.message });
+  }
+};
+
+
 
 const obtenerUsuariosPendientes = async (req, res) => {
   try {
@@ -922,7 +1028,6 @@ const obtenerUsuariosPendientes = async (req, res) => {
 
     res.status(200).json(usuariosPendientes);
   } catch (error) {
-    console.error('Error al obtener usuarios pendientes:', error);
     res.status(500).json({ message: 'Error al obtener usuarios pendientes.' });
   }
 };
@@ -944,7 +1049,6 @@ const asignarRolTemporal = async (req, res) => {
 
     res.json({ message: 'Rol temporal asignado correctamente.', usuario });
   } catch (error) {
-    console.error('Error al asignar rol temporal:', error);
     res.status(500).json({ message: 'Error al asignar rol temporal.', error: error.message });
   }
 };
@@ -960,7 +1064,6 @@ const obtenerRolTemporal = async (req, res) => {
 
     res.json({ rolTemporal: usuario.rolTemporal });
   } catch (error) {
-    console.error('Error al obtener rol temporal:', error);
     res.status(500).json({ message: 'Error al obtener rol temporal.', error: error.message });
   }
 };
@@ -984,7 +1087,6 @@ const checkExistingUser = async (req, res) => {
 
     return res.status(200).json({ existe: false, mensaje: "Usuario no encontrado." });
   } catch (error) {
-    console.error("Error en checkExistingUser:", error.message);
     res.status(500).json({ mensaje: "Error al verificar el usuario.", detalles: error.message });
   }
 };
@@ -1007,16 +1109,17 @@ const removerRolTemporal = async (req, res) => {
 
     res.json({ message: 'Rol temporal removido correctamente.', usuario });
   } catch (error) {
-    console.error('Error al remover rol temporal:', error);
     res.status(500).json({ message: 'Error al remover rol temporal.', error: error.message });
   }
 };
 
 const obtenerUsuarioDetalles = async (req, res) => {
-  const { id } = req.params;
+  const { uuid } = req.query;
+  console.log('➡️ UUID recibido:', uuid);
 
   try {
-    const usuario = await Usuario.findByPk(id, {
+    const usuario = await Usuario.findOne({
+      where: { uuid },
       include: [
         {
           model: Bien,
@@ -1032,23 +1135,27 @@ const obtenerUsuarioDetalles = async (req, res) => {
     });
 
     if (!usuario) {
+      console.warn('⚠️ Usuario no encontrado');
       return res.status(404).json({ message: 'Usuario no encontrado.' });
     }
 
     res.json(usuario);
   } catch (error) {
-    console.error('Error al obtener detalles del usuario:', error);
-    res.status(500).json({ message: 'Error al obtener detalles del usuario.', error: error.message });
+    console.error('🔥 Error en obtenerUsuarioDetalles:', error);
+    res.status(500).json({
+      message: 'Error al obtener detalles del usuario.',
+      detalles: error.message,
+    });
   }
 };
+
+
 
 // controllers/usuarioController.js
 const actualizarRolUsuario = async (req, res) => {
   const { uuid } = req.params;
   const { rolDefinitivo } = req.body;
 
-  console.log('UUID recibido:', uuid);
-  console.log('Rol recibido:', rolDefinitivo);
 
   const rolesValidos = ['admin', 'usuario', 'moderador'];
   if (!rolDefinitivo || !rolesValidos.includes(rolDefinitivo)) {
@@ -1059,19 +1166,16 @@ const actualizarRolUsuario = async (req, res) => {
     // Buscar el usuario por UUID
     const usuario = await Usuario.findOne({ where: { uuid } });
     if (!usuario) {
-      console.log(`Usuario no encontrado con UUID: ${uuid}`);
       return res.status(404).json({ message: 'Usuario no encontrado' });
     }
 
     // Verificar el rol actual antes de actualizar
-    console.log('Rol actual antes de actualizar:', usuario.rolDefinitivo);
 
     // Actualizar el rol definitivo
     usuario.rolDefinitivo = rolDefinitivo;
     await usuario.save();
 
     // Verificar el rol después de actualizar
-    console.log('Rol actual después de actualizar:', usuario.rolDefinitivo);
 
     // Devolver el usuario actualizado
     res.json({
@@ -1084,7 +1188,6 @@ const actualizarRolUsuario = async (req, res) => {
       },
     });
   } catch (error) {
-    console.error('Error al actualizar rol del usuario:', error);
     res.status(500).json({ message: 'Error al actualizar rol del usuario.' });
   }
 };
@@ -1103,7 +1206,6 @@ const obtenerUsuarioPorDni = async (req, res) => {
 
     res.status(200).json(usuario);
   } catch (error) {
-    console.error('Error al obtener usuario por DNI:', error);
     res.status(500).json({ message: 'Error al obtener usuario.', error: error.message });
   }
 };
@@ -1121,10 +1223,10 @@ const solicitarResetPassword = async (req, res) => {
     // 🔹 Generar un token único con vencimiento
     const resetToken = jwt.sign(
       { uuid: usuario.uuid },
-      process.env.SECRET_KEY,
+      process.env.JWT_SECRET,
       { expiresIn: '1h' }
     );
-
+    
     // 🔹 Guardar el token en la base de datos
     await PasswordResetToken.create({
       userId: usuario.uuid,
@@ -1194,7 +1296,6 @@ const solicitarResetPassword = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Error en solicitarResetPassword:', error);
     res.status(500).json({
       message: 'Error al solicitar reseteo de contraseña.',
       error: error.message,
@@ -1208,41 +1309,151 @@ const forgotPassword = async (req, res) => {
   const { email } = req.body;
 
   try {
-      console.log("📩 Iniciando proceso de recuperación para:", email);
 
       const usuario = await Usuario.findOne({ where: { email } });
 
       if (!usuario) {
-          console.log("❌ Usuario no encontrado con email:", email);
           return res.status(404).json({ message: 'No se encontró una cuenta con este correo electrónico.' });
       }
 
       const resetToken = jwt.sign({ uuid: usuario.uuid }, process.env.JWT_SECRET, { expiresIn: '1h' });
 
-      console.log("🔑 Token generado:", resetToken);
-
       await PasswordResetToken.create({
-          userId: usuario.id,
-          token: resetToken,
-          expiresAt: new Date(Date.now() + 3600000)
+        userId: usuario.id,
+        token: resetToken,
+        expiresAt: new Date(Date.now() + 3600000)
       });
+      
+      const resetLink = `https://regbim.minsegmza.gob.ar/reset-password/${resetToken}`;
+      
 
-      const resetLink = `${process.env.FRONTEND_URL}/reset-password/${resetToken}`;
-      console.log("🔗 Link de recuperación generado:", resetLink);
+
 
       await enviarCorreo(usuario.email, 'Recuperación de Contraseña', 'Haz clic en el enlace para restablecer tu contraseña.', `
         <p>Haz clic en el siguiente enlace para restablecer tu contraseña:</p>
         <p><a href="${resetLink}" style="color:blue;">Restablecer Contraseña</a></p>
       `);
 
-      console.log(`✅ Correo enviado a: ${usuario.email}`);
 
       return res.json({ message: 'Correo de recuperación enviado con éxito.' });
   } catch (error) {
-      console.error('❌ Error en forgotPassword:', error);
       return res.status(500).json({ message: 'Error interno del servidor.', error: error.message });
   }
 };
+
+const invitarDelegado = async (req, res) => {
+  try {
+    const { nombre, apellido, email, rolEmpresa } = req.body;
+    const empresaUuid = req.user?.empresaUuid || req.user?.uuid;
+
+    if (!empresaUuid) {
+      return res.status(400).json({ message: 'No se pudo determinar la empresa emisora.' });
+    }
+
+    const yaExiste = await Usuario.findOne({ where: { email } });
+    if (yaExiste) {
+      return res.status(409).json({ message: 'Ese correo ya está registrado' });
+    }
+
+    const nuevoUuid = uuidv4();
+    const passwordTemporal = await bcrypt.hash('temporal_' + Date.now(), 10);
+
+    const delegado = await Usuario.create({
+      uuid: nuevoUuid,
+      nombre,
+      apellido,
+      email,
+      estado: 'pendiente',
+      tipo: 'fisica', // ✅ delegado es persona
+      rolEmpresa,
+      delegadoDeEmpresa: empresaUuid, // ✅ relación correcta
+      password: passwordTemporal,
+      rolDefinitivo: 'usuario',
+    });
+
+    const token = jwt.sign(
+      { uuid: nuevoDelegado.uuid },  // ✅ Acá ya está bien
+      process.env.JWT_SECRET,
+      { expiresIn: '1d' }
+    );
+    
+    const linkActivacion = `${process.env.FRONTEND_URL}/usuarios/update-account/${token}`;
+
+    const html = activacionDelegadoHTML({ nombre, enlace: linkActivacion });
+
+    await enviarCorreo(
+      email,
+      'Fuiste invitado como delegado de empresa',
+      `Hola ${nombre}, hacé clic para activar tu cuenta.`,
+      html
+    );
+
+    return res.status(200).json({ message: '📨 Invitación enviada exitosamente al delegado.' });
+
+  } catch (error) {
+    console.error('❌ Error al invitar delegado:', error);
+    return res.status(500).json({ message: 'Error interno al invitar delegado.' });
+  }
+};
+
+
+const activarCuenta = async (req, res) => {
+  const { token, password } = req.body;
+
+  if (!token || !password) {
+    return res.status(400).json({ message: 'Faltan datos obligatorios' });
+  }
+
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const usuario = await Usuario.findByPk(decoded.uuid);
+
+    if (!usuario) {
+      return res.status(404).json({ message: 'Usuario no encontrado' });
+    }
+
+    // Solo permitir activación si no tenía password antes
+    if (usuario.password) {
+      return res.status(400).json({ message: 'La cuenta ya fue activada anteriormente' });
+    }
+
+    usuario.password = await bcrypt.hash(password, 10);
+    usuario.estado = 'activo';
+    usuario.mensajeBienvenidaEnviada = true;
+
+    await usuario.save();
+
+    return res.json({ success: true, message: 'Cuenta activada correctamente' });
+
+  } catch (error) {
+    console.error('❌ Error en activación:', error);
+    return res.status(400).json({ message: 'Token inválido o expirado' });
+  }
+}; 
+
+
+
+const getEmpresaByUuid = async (req, res) => {
+  const { uuid } = req.params;
+
+  if (!uuid || !isUuid(uuid)) {
+    return res.status(400).json({ message: 'UUID de empresa inválido.' });
+  }
+
+  try {
+    const empresa = await Empresa.findOne({ where: { uuid } });
+
+    if (!empresa) {
+      return res.status(404).json({ message: 'Empresa no encontrada' });
+    }
+
+    res.status(200).json(empresa);
+  } catch (error) {
+    console.error('❌ Error al obtener empresa por UUID:', error);
+    res.status(500).json({ message: 'Error del servidor', detalle: error.message });
+  }
+};
+
 
 
 module.exports = {
@@ -1251,9 +1462,10 @@ module.exports = {
   cambiarEstadoUsuario, // Incluye la aprobación y rechazo de usuarios
   obtenerUsuariosPorEstado, // Para obtener usuarios aprobados, rechazados, pendientes, etc.
   actualizarUsuario,
+  aprobarUsuario,
   eliminarUsuario,
   obtenerUsuarios, // Obtener todos los usuarios
-  obtenerUsuarioPorId, // Obtener un usuario por su ID
+  getUsuarioByUuid, // Obtener un usuario por su ID
   obtenerUsuarioPorDni, // Obtener un usuario por su DNI
   registerUsuarioPorTercero, // Registrar un usuario a través de terceros
   obtenerUsuarioDetalles, // Obtener detalles de un usuario autenticado
@@ -1269,7 +1481,10 @@ module.exports = {
   reintentarRegistro,
   solicitarResetPassword,
   forgotPassword,
-
-
+  registrarDelegadoEmpresa,
+  invitarDelegado,
+  activarCuenta, 
+  getEmpresaByUuid,
+ 
 };
 

@@ -29,10 +29,7 @@ const enviarCorreo = async (to, subject, text, html) => {
 
   try {
     const info = await transporter.sendMail(mailOptions);
-    console.log('Correo enviado con éxito:', info.messageId);
-    console.log('Vista previa del correo:', nodemailer.getTestMessageUrl(info));
   } catch (error) {
-    console.error('Error enviando correo:', error.message);
     throw error;
   }
 };
@@ -40,15 +37,12 @@ const enviarCorreo = async (to, subject, text, html) => {
 // Ejecutar prueba
 (async () => {
   try {
-    console.log('Iniciando prueba de correo...');
     await enviarCorreo(
       'destinatario@example.com', // Cambia por un correo válido para la prueba
       'Prueba de Correo',
       'Este es un correo de prueba enviado desde el servicio.',
       '<p>Este es un correo de <b>prueba</b> enviado desde el servicio.</p>'
     );
-    console.log('Correo enviado correctamente.');
   } catch (error) {
-    console.error('Error en la prueba de envío:', error);
   }
 })();

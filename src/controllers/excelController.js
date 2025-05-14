@@ -1,20 +1,19 @@
-const { sequelize } = require('../models'); // Reemplaza con la ruta correcta.
+const { sequelize } = require('../models');
+// 🔹 Guardar bienes en base al Excel + fotos + IMEIs
+const { notificarAdministradorInternamente } = require('../services/notficacionesService');
 const { Bien, Stock, DetallesBien } = require('../models');
 const { v4: uuidv4 } = require('uuid');
-const XLSX = require('xlsx');
-const fs = require('fs').promises;
+const ExcelJS = require('exceljs');
 const cloudinary = require('cloudinary').v2;
 
-
-// Configuración de Cloudinary
-// Configuración de Cloudinary
+// 🔐 Configuración de Cloudinary
 cloudinary.config({
     cloud_name: 'dtx5ziooo',
     api_key: '154721198775314',
     api_secret: '4HXf6T4SIh_Z5RjmeJtmM6hEYdk',
-  });
+});
 
-// Función para subir fotos a Cloudinary
+// 🔹 Subida de fotos generales
 const subirFotos = async (req, res) => {
     try {
         const archivos = req.files;
@@ -40,44 +39,39 @@ const subirFotos = async (req, res) => {
     }
 };
 
-
-
+// 🔹 Procesar archivo Excel recibido
 const processExcel = async (req, res) => {
     try {
-        console.log('Procesando archivo Excel.');
-
         if (!req.file) {
             return res.status(400).json({ message: 'No se subió ningún archivo Excel.' });
         }
 
-        console.log('Ruta del archivo recibido:', req.file.path);
-        if (!(await fs.access(req.file.path).then(() => true).catch(() => false))) {
-            return res.status(400).json({ message: 'El archivo subido no existe.' });
-        }
+        const workbook = new ExcelJS.Workbook();
+        await workbook.xlsx.load(req.file.buffer);
+        const worksheet = workbook.worksheets[0];
 
-        const workbook = XLSX.readFile(req.file.path);
-        const data = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
+        const data = [];
+        worksheet.eachRow((row, rowIndex) => {
+            if (rowIndex === 1) return; // Saltar encabezado
 
-        if (!data || data.length === 0) {
+            data.push({
+                idTemporal: uuidv4(),
+                Tipo: row.getCell(1).value || '',
+                Descripción: row.getCell(2).value || '',
+                Precio: row.getCell(3).value || 0,
+                Marca: row.getCell(4).value || '',
+                Modelo: row.getCell(5).value || '',
+                CantidadStock: row.getCell(6).value || 0,
+            });
+        });
+
+        if (!data.length) {
             return res.status(400).json({ message: 'La planilla no contiene datos válidos.' });
         }
 
-        const bienes = data.map((row) => ({
-            idTemporal: uuidv4(),
-            Tipo: row.Tipo || '',
-            Descripción: row.Descripción || '',
-            Precio: row.Precio || 0,
-            Marca: row.Marca || '',
-            Modelo: row.Modelo || '',
-            CantidadStock: row['Cantidad Stock'] || 0,
-        }));
-
-        await fs.unlink(req.file.path);
-        console.log('Archivo temporal eliminado correctamente.');
-
         res.status(200).json({
             message: 'Planilla procesada correctamente.',
-            bienes,
+            bienes: data,
         });
     } catch (error) {
         console.error('Error procesando el archivo Excel:', error);
@@ -85,202 +79,144 @@ const processExcel = async (req, res) => {
     }
 };
 
+// 🔹 Subir base64 a Cloudinary
 const subirFotoACloudinary = async (fotoBase64) => {
-  if (!fotoBase64 || typeof fotoBase64 !== 'string' || !fotoBase64.startsWith('data:image')) {
-      throw new Error('El archivo de la foto está vacío o no es válido.');
-  }
+    if (!fotoBase64 || typeof fotoBase64 !== 'string' || !fotoBase64.startsWith('data:image')) {
+        throw new Error('Formato de imagen no válido.');
+    }
 
-  try {
-      return new Promise((resolve, reject) => {
-          const base64Data = fotoBase64.replace(/^data:image\/\w+;base64,/, ''); // Elimina el encabezado `data:image`
-          const buffer = Buffer.from(base64Data, 'base64'); // Convierte a buffer
-
-          cloudinary.uploader.upload_stream({ resource_type: 'image' }, (error, result) => {
-              if (error) {
-                  console.error('Error al subir foto a Cloudinary:', error);
-                  return reject(new Error('Error al subir la foto a Cloudinary.'));
-              }
-              resolve({ secure_url: result.secure_url });
-          }).end(buffer);
-      });
-  } catch (error) {
-      console.error('Error interno al procesar la foto:', error.message);
-      throw new Error('Error interno al procesar la foto.');
-  }
+    try {
+        const resultado = await cloudinary.uploader.upload(fotoBase64, { resource_type: 'image' });
+        return resultado.secure_url;
+    } catch (error) {
+        console.error("❌ Error al subir foto a Cloudinary:", error.message);
+        throw new Error('Error al subir la foto a Cloudinary.');
+    }
 };
-
-
 
 
 const finalizarCreacionBienes = async (req, res) => {
   let transaction;
 
   try {
-    const { bienes } = req.body;
+    const propietarioUuid = req.user.empresaUuid || req.user.uuid;
 
-    if (!Array.isArray(bienes) || bienes.length === 0) {
+    if (!req.body.bienes || !Array.isArray(req.body.bienes) || req.body.bienes.length === 0) {
       return res.status(400).json({ message: 'No se proporcionaron bienes para registrar.' });
     }
 
-    const propietario_uuid = req.user.uuid; // Obtener el propietario desde el token
-    if (!propietario_uuid) {
-      return res.status(401).json({ message: 'Usuario no autenticado.' });
-    }
-
     transaction = await sequelize.transaction();
-
     const bienesGuardados = [];
 
-    for (const bien of bienes) {
-      // Validar campos obligatorios
-      if (!bien.tipo || !bien.marca || !bien.modelo || bien.cantidadStock <= 0) {
-        console.error(`Datos obligatorios faltantes para el bien: ${JSON.stringify(bien)}`);
-        continue; // salta este bien, sigue con el siguiente
-      }
+    for (const bien of req.body.bienes) {
+      if (!bien.Tipo || !bien.Marca || !bien.Modelo) continue;
 
-      // Subir fotos del array bien.fotos (si existen)
-      const fotosSubidas = bien.fotos?.length
-        ? await Promise.all(
-            bien.fotos.map(async (fotoBase64, index) => {
-              try {
-                // Asume que subirFotoACloudinary(fotoBase64) devuelve { secure_url: '...'}
-                return await subirFotoACloudinary(fotoBase64);
-              } catch (error) {
-                console.error(`Error al subir la foto ${index + 1}:`, error.message);
-                throw new Error('Error al subir una o más fotos.');
-              }
-            })
-          )
-        : [];
+      // 1️⃣ Crear el bien primero
+      const nuevoBien = await Bien.create({
+        uuid: uuidv4(),
+        tipo: bien.Tipo,
+        descripcion: bien.Descripción,
+        precio: bien.Precio,
+        marca: bien.Marca,
+        modelo: bien.Modelo,
+        propietario_uuid: propietarioUuid,
+      }, { transaction });
 
-      // Verificar si ya existe el bien con (tipo, marca, modelo, propietario_uuid)
-      const bienExistente = await Bien.findOne({
-        where: { tipo: bien.tipo, marca: bien.marca, modelo: bien.modelo, propietario_uuid },
-        transaction,
-      });
+      // 2️⃣ Crear stock
+      await Stock.create({
+        uuid: uuidv4(),
+        bien_uuid: nuevoBien.uuid,
+        cantidad: bien.CantidadStock || 1,
+        usuario_uuid: propietarioUuid,
+      }, { transaction });
 
-      let nuevoBien;
-      if (bienExistente) {
-        // Ya existe => Actualizar stock
-        const stockExistente = await Stock.findOne({
-          where: { bien_uuid: bienExistente.uuid },
-          transaction,
-        });
-
-        if (stockExistente) {
-          await stockExistente.update(
-            { cantidad: stockExistente.cantidad + bien.cantidadStock },
-            { transaction }
-          );
-        } else {
-          await Stock.create(
-            {
-              cantidad: bien.cantidadStock,
-              bien_uuid: bienExistente.uuid,
-              usuario_uuid: propietario_uuid, // si tu tabla stock tiene este campo
-            },
-            { transaction }
-          );
-        }
-        nuevoBien = bienExistente;
-      } else {
-        // Crear un nuevo Bien
-        nuevoBien = await Bien.create(
-          {
-            tipo: bien.tipo,
-            descripcion: bien.descripcion,
-            precio: bien.precio,
-            marca: bien.marca,
-            modelo: bien.modelo,
-            // Guardar las fotos subidas a Cloudinary a nivel "Bien"
-            fotos: fotosSubidas.map((f) => f.secure_url),
-            propietario_uuid, // Asigna el propietario
-          },
-          { transaction }
-        );
-
-        // Crear Stock
-        await Stock.create(
-          {
-            cantidad: bien.cantidadStock,
-            bien_uuid: nuevoBien.uuid,
-            usuario_uuid: propietario_uuid, // asume que tu stock tiene este campo
-          },
-          { transaction }
-        );
-      }
-
-      // Crear tantos registros en DetallesBien como indique la cantidadStock
-      // Si es 'teléfono móvil' con IMEIs => usar la IMEI correspondiente y su foto
-      for (let i = 0; i < bien.cantidadStock; i++) {
-        if (bien.tipo.toLowerCase() === 'teléfono móvil' && bien.imeis && bien.imeis[i]) {
-          const imei = bien.imeis[i];
-          // Toma la foto i-ésima si existe. Sino, null
-          const foto = fotosSubidas[i]?.secure_url || null;
-
-          // Verificar si ya existe un DetallesBien con ese IMEI
-          const imeiExistente = await DetallesBien.findOne({
+      // 3️⃣ IMEIs (teléfonos móviles)
+      if (bien.Tipo.toLowerCase() === 'teléfono móvil' && bien.ImeisImagenes) {
+        for (const [imei, { precio, imagenes }] of Object.entries(bien.ImeisImagenes)) {
+          const existeImei = await DetallesBien.findOne({
             where: { identificador_unico: imei },
             transaction,
           });
 
-          if (!imeiExistente) {
-            await DetallesBien.create(
-              {
-                bien_uuid: nuevoBien.uuid,
-                identificador_unico: imei,
-                foto, // Guardamos la foto en el campo 'foto' de DetallesBien
-              },
-              { transaction }
-            );
+          if (existeImei) {
+            await notificarAdministradorInternamente({
+              adminUuid: null,
+              descripcion: `Intento de registrar IMEI duplicado al cargar bien por lote.`,
+              uuidSospechoso: imei,
+              tipo: 'imei',
+            });
+            continue; // ⛔ ignoramos el duplicado pero lo notificamos
           }
-        } else {
-          // No es teléfono móvil => o no tiene IMEIs => generar identificador random
-          const identificador = `${nuevoBien.uuid}-${uuidv4()}`;
-          const foto = fotosSubidas[i]?.secure_url || null;
 
-          await DetallesBien.create(
-            {
-              bien_uuid: nuevoBien.uuid,
-              identificador_unico: identificador,
-              foto,
-            },
-            { transaction }
-          );
+          const fotosSubidas = imagenes?.length > 0
+            ? await Promise.all(imagenes.slice(0, 4).map(subirFotoACloudinary))
+            : [];
+
+          await DetallesBien.create({
+            uuid: uuidv4(),
+            bien_uuid: nuevoBien.uuid,
+            identificador_unico: imei,
+            estado: 'disponible',
+            foto: fotosSubidas[0] || null,
+            precio: precio || bien.Precio || 0,
+          }, { transaction });
         }
       }
 
-      // Agregar a bienesGuardados la info
-      bienesGuardados.push({ bien: nuevoBien.toJSON(), stock: bien.cantidadStock });
+      // 4️⃣ Otros identificadores únicos
+      if (
+        bien.Tipo.toLowerCase() !== 'teléfono móvil' &&
+        Array.isArray(bien.IdentificadoresUnicos) &&
+        bien.IdentificadoresUnicos.length > 0
+      ) {
+        for (const idUnico of bien.IdentificadoresUnicos) {
+          const existe = await DetallesBien.findOne({
+            where: { identificador_unico: idUnico },
+            transaction,
+          });
+
+          if (existe) {
+            await notificarAdministradorInternamente({
+              adminUuid: null,
+              descripcion: `Registro masivo: identificador duplicado (${idUnico})`,
+              uuidSospechoso: idUnico,
+              tipo: 'identificador',
+            });
+            continue;
+          }
+
+          await DetallesBien.create({
+            uuid: uuidv4(),
+            bien_uuid: nuevoBien.uuid,
+            identificador_unico: idUnico,
+            estado: 'disponible',
+            foto: null,
+          }, { transaction });
+        }
+      }
+
+      bienesGuardados.push({ bien: nuevoBien.toJSON() });
     }
 
     await transaction.commit();
     return res.status(201).json({
-      message: 'Bienes registrados correctamente.',
+      message: '✅ Bienes registrados correctamente.',
       bienes: bienesGuardados,
     });
+
   } catch (error) {
     if (transaction) await transaction.rollback();
-    console.error('Error al finalizar la creación de bienes:', error.message);
     return res.status(500).json({
-      message: 'Error al registrar los bienes.',
-      detalles: error.message,
+      message: '❌ Error interno al registrar bienes.',
+      error: error.message,
     });
   }
 };
 
 
-
-
-
-
-
-
+// 🔹 Subida de fotos (usada por frontend individualmente por bien)
 const subirFotosPorBien = async (req, res) => {
-    console.log('Archivos recibidos en req.files:', req.files);
-
-    if (!req.files || req.files.length === 0) {
-        console.error('No se subieron imágenes.');
+    if (!Array.isArray(req.files) || req.files.length === 0) {
         return res.status(400).json({ message: 'No se subieron imágenes.' });
     }
 
@@ -291,37 +227,24 @@ const subirFotosPorBien = async (req, res) => {
                     cloudinary.uploader.upload_stream(
                         { resource_type: 'image' },
                         (error, result) => {
-                            if (error) {
-                                console.error('Error al subir imagen:', error);
-                                return reject(error);
-                            }
-                            console.log('Resultado de Cloudinary:', result);
-                            resolve(result.secure_url); // Devuelve la URL segura de la imagen
+                            if (error) return reject(error);
+                            resolve(result.secure_url);
                         }
-                    ).end(file.buffer); // Usamos el buffer de la imagen
+                    ).end(file.buffer);
                 });
             })
         );
 
-        console.log('Fotos subidas correctamente:', fotos);
-
         return res.status(200).json({ fotos });
     } catch (error) {
-        console.error('Error interno al procesar las fotos:', error);
         return res.status(500).json({ message: 'Error interno al procesar las fotos.' });
     }
 };
 
-
-
-
-
-// Exportar las funciones
 module.exports = {
     processExcel,
     subirFotos,
     finalizarCreacionBienes,
     subirFotosPorBien,
-     subirFotoACloudinary,
-
+    subirFotoACloudinary,
 };

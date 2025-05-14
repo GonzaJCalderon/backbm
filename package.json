@@ -25,6 +25,7 @@
     "define-data-property": "^1.1.4",
     "dotenv": "^16.4.5",
     "excel-to-json": "^1.0.0",
+    "exceljs": "^4.4.0",
     "express": "^4.19.2",
     "express-fileupload": "^1.5.1",
     "express-session": "^1.18.0",

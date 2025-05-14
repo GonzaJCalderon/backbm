@@ -7,19 +7,22 @@ const bcrypt = require('bcryptjs');
 require('dotenv').config();
 
 
+
+
 const usuarioController = require('../controllers/usuariosController');
 const { validarCampos } = require('../utils/validationUtils');
-// const { verificarPermisos } = require('../middlewares/authMiddleware');
-const { verifyToken, verificarPermisos } = require('../middlewares/authJwt');
+const { verifyToken, verificarPermisos, puedeActivarDelegado } = require('../middlewares/authJwt');
+const { verificarEmpresaJuridica } = require('../middlewares/authTipo');
 
 const secretKey = process.env.SECRET_KEY || 'bienes_muebles'; // Usa la clave secreta de .env
 
 
 
 // Rutas de usuario
+// Rutas de usuario
 router.post(
   '/register',
-  validarCampos(['nombre', 'apellido', 'email', 'password', 'tipo', 'direccion']), // Valida dirección, pero no barrio
+  validarCampos(), // sin parámetros ahora
   usuarioController.crearUsuario
 );
 
@@ -27,25 +30,62 @@ router.post(
 
 router.post('/login', usuarioController.login);
 
-router.post('/refresh', (req, res) => {
+router.post('/refresh', async (req, res) => {
   const { refreshToken } = req.body;
 
-  if (!refreshToken) return res.status(401).json({ message: 'Refresh token no proporcionado.' });
+  if (!refreshToken) {
+    return res.status(401).json({ message: 'Refresh token no proporcionado.' });
+  }
 
   try {
-    const decoded = jwt.verify(refreshToken, process.env.REFRESH_SECRET || 'refresh_bienes');
-
-    const newAccessToken = jwt.sign(
-      { uuid: decoded.uuid },
-      process.env.SECRET_KEY || 'bienes_muebles',
-      { expiresIn: '4h' }
+    const decoded = jwt.verify(
+      refreshToken,
+      process.env.REFRESH_SECRET_KEY || 'refresh_bienes'
     );
 
-    res.status(200).json({ accessToken: newAccessToken });
+    const usuario = await Usuario.findOne({ where: { uuid: decoded.uuid } });
+
+    if (!usuario) {
+      return res.status(404).json({ message: 'Usuario no encontrado para refrescar token.' });
+    }
+
+    // ✅ Payload con datos completos
+    const payload = {
+      uuid: usuario.uuid,
+      email: usuario.email,
+      tipo: usuario.tipo,
+      rolDefinitivo: usuario.rolDefinitivo,
+      empresaUuid: usuario.empresa_uuid || null,
+      rolEmpresa: usuario.rolEmpresa || null,
+    };
+
+    // ⏱ Access token corto (ej: 30 minutos)
+    const newAccessToken = jwt.sign(
+      payload,
+      process.env.JWT_SECRET || 'bienes_muebles',
+      { expiresIn: '30m' }
+    );
+
+    // 🔁 Nuevo refresh token (rotado)
+    const newRefreshToken = jwt.sign(
+      { uuid: usuario.uuid },
+      process.env.REFRESH_SECRET_KEY || 'refresh_bienes',
+      { expiresIn: '7d' }
+    );
+
+    return res.status(200).json({
+      accessToken: newAccessToken,
+      refreshToken: newRefreshToken,
+    });
+
   } catch (error) {
+    console.error('❌ Error verificando refresh token:', error);
     return res.status(403).json({ message: 'Refresh token inválido o expirado.' });
   }
 });
+
+
+
 
 
 router.get(
@@ -54,6 +94,7 @@ router.get(
   verificarPermisos(['admin']), // Solo usuarios con rol "admin" pueden acceder
   usuarioController.obtenerUsuarios
 );
+
 router.get('/usuarios', verifyToken, verificarPermisos(['admin', 'moderador']), async (req, res) => {
   const { nombre, email, dni, estado, page = 1, limit = 10 } = req.query;
 
@@ -79,9 +120,14 @@ router.get('/usuarios', verifyToken, verificarPermisos(['admin', 'moderador']), 
       pages: Math.ceil(usuarios.count / limit)
     });
   } catch (error) {
-    console.error('Error al filtrar usuarios:', error);
     res.status(500).json({ message: 'Error al filtrar usuarios.' });
   }
+});
+// Ruta para obtener usuarios aprobados
+router.get('/aprobados', async (req, res) => {
+  
+  req.query.estado = 'aprobado'; // Filtro correcto
+  await usuarioController.obtenerUsuariosPorEstado(req, res);
 });
 
 router.get('/historial-cambios', async (req, res) => {
@@ -89,7 +135,6 @@ router.get('/historial-cambios', async (req, res) => {
     const historial = await HistorialCambios.findAll({ order: [['fecha', 'DESC']] });
     res.status(200).json(historial);
   } catch (error) {
-    console.error('Error al obtener historial:', error.message);
     res.status(500).json({ message: 'Error al obtener historial.' });
   }
 });
@@ -98,29 +143,27 @@ router.get('/dni', verifyToken, verificarPermisos(['admin', 'moderador']), usuar
 
 router.post('/register-usuario-por-tercero', usuarioController.registerUsuarioPorTercero);
 
+router.post('/registrar-delegado', verifyToken, verificarEmpresaJuridica, usuarioController.registrarDelegadoEmpresa);
+
+
+
 router.post('/update-account/:token', async (req, res) => {
   const { token } = req.params;
   const { newPassword, nombre, apellido } = req.body;
 
-  console.log('Token recibido:', token);
-  console.log('Datos recibidos:', { newPassword, nombre, apellido });
 
   try {
     // Verificamos el token recibido
-    const decoded = jwt.verify(token, 'bienes_muebles');
-    console.log('Token decodificado:', decoded);
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
 
     // IMPORTANTE: El token tiene userUuid en vez de id
-    const usuario = await Usuario.findOne({
-      where: { uuid: decoded.userUuid }
-    });
-
+     const usuario = await Usuario.findOne({ where: { uuid: decoded.uuid } });
     if (!usuario) {
       return res.status(404).json({ mensaje: 'Usuario no encontrado.' });
     }
 
     if (usuario.estado === 'pendiente') {
-      console.log('El usuario está en estado pendiente, no se cambiará a aprobado automáticamente.');
     }
 
     // Actualizar los datos del usuario
@@ -141,27 +184,25 @@ router.post('/update-account/:token', async (req, res) => {
 
     return res.json({ mensaje: 'Cuenta actualizada exitosamente. El estado sigue siendo pendiente.' });
   } catch (error) {
-    console.error('Error al procesar el token:', error.message);
     return res.status(400).json({ mensaje: 'Token inválido o expirado.' });
   }
 });
 
-
-
-
-router.get('/usuario/detalles', verifyToken, verificarPermisos(['admin', 'moderador']), usuarioController.obtenerUsuarioDetalles);
-
-router.get('/compradores', verifyToken, verificarPermisos(['admin', 'moderador']), usuarioController.obtenerCompradores);
-
-router.get('/usuarios/pendientes', verifyToken, verificarPermisos(['admin', 'moderador']), usuarioController.obtenerUsuariosPendientes);
-
-router.get('/:uuid', async (req, res) => {
-  const { uuid } = req.params;
-  const usuario = await Usuario.findOne({ where: { uuid } });
-  if (!usuario) return res.status(404).json({ message: 'Usuario no encontrado' });
-  res.json(usuario);
+router.get('/usuarios/pendientes', verifyToken, verificarPermisos(['admin', 'moderador']), (req, res) => {
+  req.query.estado = 'pendiente';
+  usuarioController.obtenerUsuariosPorEstado(req, res);
 });
 
+router.get('/usuarios/rechazados', verifyToken, verificarPermisos(['admin', 'moderador']), (req, res) => {
+  req.query.estado = 'rechazado';
+  usuarioController.obtenerUsuariosPorEstado(req, res);
+});
+// routes/usuarios.js
+
+router.get('/detalles', verifyToken, verificarPermisos(['admin', 'moderador']), usuarioController.obtenerUsuarioDetalles);
+
+
+router.get('/compradores', verifyToken, verificarPermisos(['admin', 'moderador']), usuarioController.obtenerCompradores);
 
 router.put('/:uuid', verifyToken, verificarPermisos(['admin', 'usuario']), usuarioController.actualizarUsuario);
 
@@ -184,11 +225,8 @@ router.get('/reset-password/:token', (req, res) => {
 router.post('/reset-password/:token', usuarioController.resetPassword)
 
 router.put('/:uuid/aprobar', verifyToken, verificarPermisos(['admin']), async (req, res) => {
-  console.log(`Solicitud de aprobación recibida para UUID: ${req.params.uuid}`);
-  console.log('Datos recibidos:', req.body);
 
   if (!req.body.aprobadoPor || !req.body.aprobadoPorNombre) {
-    console.error('Faltan datos obligatorios');
     return res.status(400).json({ message: 'Los campos aprobadoPor y aprobadoPorNombre son obligatorios.' });
   }
 
@@ -201,7 +239,6 @@ router.put('/:uuid/aprobar', verifyToken, verificarPermisos(['admin']), async (r
 
 // Ruta para rechazar un usuario
 router.put('/:uuid/rechazar', verifyToken, verificarPermisos(['admin']), async (req, res) => {
-  console.log('Datos recibidos en /rechazar:', req.body);
   const { motivoRechazo } = req.body;
 
   if (!motivoRechazo) {
@@ -215,30 +252,8 @@ router.put('/:uuid/rechazar', verifyToken, verificarPermisos(['admin']), async (
   await usuarioController.cambiarEstadoUsuario(req, res);
 });
 
-
-// Ruta para obtener usuarios aprobados
-// Ruta para obtener usuarios aprobados
-router.get('/usuarios/aprobados', async (req, res) => {
-  console.log('📌 Entrando a la ruta /usuarios/aprobados...');
-  console.log('🔍 Headers recibidos:', req.headers);
-  console.log('🔍 Query Params:', req.query);
-  
-  req.query.estado = 'aprobado'; // Filtro correcto
-  await usuarioController.obtenerUsuariosPorEstado(req, res);
-});
-
-  
-
-
 // Ruta para actualizar el rol del usuario
 router.patch('/usuarios/:uuid/rol', usuarioController.actualizarRolUsuario);
-
-
-// Ruta para obtener usuarios rechazados
-router.get('/usuarios/rechazados', verifyToken, verificarPermisos(['admin', 'moderador']), async (req, res) => {
-  req.query.estado = 'rechazado';
-  await usuarioController.obtenerUsuariosPorEstado(req, res);
-});
 
 router.patch('/usuarios/:uuid/estado', usuarioController.cambiarEstadoUsuario);
 
@@ -263,7 +278,6 @@ router.get('/:uuid/stock', verifyToken, verificarPermisos(['admin', 'usuario']),
       stocks,
     });
   } catch (error) {
-    console.error('Error al obtener stock del usuario:', error);
     res.status(500).json({ error: 'Error al procesar la solicitud.' });
   }
 });
@@ -290,7 +304,6 @@ router.put('/:uuid/stock', verifyToken, verificarPermisos(['admin']), async (req
       stock,
     });
   } catch (error) {
-    console.error('Error al actualizar stock del usuario:', error);
     res.status(500).json({ error: 'Error al procesar la solicitud.' });
   }
 });
@@ -357,10 +370,57 @@ router.put('/:uuid/reenviar', async (req, res) => {
       link: updateAccountLink, // Para depuración
     });
   } catch (error) {
-    console.error('Error al reenviar solicitud:', error);
     res.status(500).json({ message: 'Error interno al reenviar solicitud.' });
   }
 });
+
+router.get('/usuario/:uuid', async (req, res) => {
+  const { uuid } = req.params;
+  const usuario = await Usuario.findOne({ where: { uuid } });
+  if (!usuario) return res.status(404).json({ message: 'Usuario no encontrado' });
+  res.json(usuario);
+});
+
+// GET /empresas/:uuid
+router.get('/empresas/:uuid', usuarioController.getEmpresaByUuid);
+
+
+router.post('/delegados/invitar', usuarioController.invitarDelegado); 
+
+router.patch(
+  '/:uuid/activar',
+  verifyToken,
+  puedeActivarDelegado,
+  async (req, res) => {
+    const { uuid } = req.params;
+    const { activo } = req.body;
+
+    const usuario = await Usuario.findOne({ where: { uuid } });
+
+    if (!usuario) return res.status(404).json({ message: 'Usuario no encontrado.' });
+
+    // Verificamos permisos
+    const esAdmin = req.user.rolDefinitivo === 'admin';
+    const esResponsableDeLaEmpresa =
+      req.user.rolEmpresa === 'responsable' &&
+      usuario.empresa_uuid?.toString() === req.user.empresaUuid?.toString();
+
+    console.log('🛠 Comparando empresas:', {
+      delUsuario: usuario.empresa_uuid,
+      delResponsable: req.user.empresaUuid
+    });
+
+    if (!esAdmin && !esResponsableDeLaEmpresa) {
+      return res.status(403).json({ message: 'No puedes modificar delegados fuera de tu empresa.' });
+    }
+
+    usuario.activo = activo;
+    await usuario.save();
+
+    return res.status(200).json({ message: `Usuario ${activo ? 'activado' : 'desactivado'} correctamente.` });
+  }
+);
+
 
 
 

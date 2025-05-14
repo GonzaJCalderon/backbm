@@ -1,53 +1,43 @@
 const multer = require('multer');
-const path = require('path');
-const fs = require('fs');
 
-// Verificar y crear la carpeta si no existe
-const uploadPath = path.join(__dirname, '../uploads/excel/');
-if (!fs.existsSync(uploadPath)) {
-  console.log(`Creando carpeta para almacenamiento en: ${uploadPath}`);
-  fs.mkdirSync(uploadPath, { recursive: true });
-}
+// 🔹 Configuración de almacenamiento en memoria para Excel
+const storageExcel = multer.memoryStorage();
 
-// Configuración de almacenamiento
-const storageExcel = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, uploadPath);
-  },
-  filename: (req, file, cb) => {
-    cb(null, Date.now() + path.extname(file.originalname));
-  },
-});
-
-// Middleware de subida con validación de archivo
+// 🔹 Middleware de subida con validaciones
 const uploadExcel = multer({
   storage: storageExcel,
-  limits: { fileSize: 5 * 1024 * 1024 },
+  limits: { fileSize: 10 * 1024 * 1024 }, // 🔺 Límite de 10MB (ajustable)
   fileFilter: (req, file, cb) => {
-    const allowedExtensions = /xlsx|xls/;
-    const isExtensionValid = allowedExtensions.test(path.extname(file.originalname).toLowerCase());
-    const mimeTypeValid = file.mimetype === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
-                          file.mimetype === 'application/vnd.ms-excel';
+    console.log(`📂 Intentando subir archivo: ${file.originalname}`);
 
-    if (isExtensionValid && mimeTypeValid) {
+    const allowedExtensions = /\.(xlsx|xls)$/i;
+    const isExtensionValid = allowedExtensions.test(file.originalname.toLowerCase());
+    const mimeTypes = [
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'application/vnd.ms-excel',
+    ];
+    const isMimeTypeValid = mimeTypes.includes(file.mimetype);
+
+    if (isExtensionValid && isMimeTypeValid) {
       cb(null, true);
     } else {
+      console.error(`❌ Archivo rechazado: ${file.originalname}`);
       cb(new Error('Solo archivos Excel (XLSX, XLS) son permitidos.'));
     }
   },
-}).single('archivoExcel');
+}).single('archivoExcel'); // Ahora solo permite subir un archivo a la vez
 
-// Middleware para manejar errores de multer
+// 🔹 Middleware para manejar errores de multer
 const multerErrorHandler = (err, req, res, next) => {
   if (err instanceof multer.MulterError || err instanceof Error) {
-    res.status(400).json({ message: err.message });
-  } else {
-    next();
+    console.error(`❌ Error de carga de archivo: ${err.message}`);
+    return res.status(400).json({ message: err.message });
   }
+  next();
 };
 
-// Exportar correctamente
+// 🔹 Exportar el middleware
 module.exports = {
   uploadExcel,         // Middleware principal
-  multerErrorHandler,  // Middleware para manejar errores
+  multerErrorHandler,  // Manejo de errores
 };

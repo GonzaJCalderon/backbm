@@ -28,7 +28,6 @@ const getHistorialCambios = async (req, res) => {
 
     res.json(historialNormalizado);
   } catch (error) {
-    console.error('Error al procesar la solicitud:', error.message);
     res.status(500).json({ message: 'Error al obtener historial de cambios', detalles: error.message });
   }
 };
