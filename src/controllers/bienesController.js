@@ -193,7 +193,8 @@ const crearBien = async (req, res) => {
     }
 
     // 📷 Fotos generales del bien
-    const fotosDelBien = req.uploadedPhotosVenta?.[0]?.fotos || [];
+   const fotosDelBien = req.uploadedPhotos?.[0]?.fotos || req.uploadedPhotosVenta?.[0]?.fotos || [];
+
 
     // ❌ Evitar duplicados
     const bienExistente = await Bien.findOne({
@@ -255,7 +256,8 @@ const crearBien = async (req, res) => {
         });
 
         if (!yaExiste) {
-        const fotoImei = req.uploadedPhotos?.[0]?.imeiFotos?.[i] || null;
+   const fotoImei = req.uploadedPhotos?.[0]?.imeiFotos?.[i] || req.uploadedPhotosVenta?.[0]?.imeiFotos?.[i] || null;
+
           const detalle = await DetallesBien.create({
             uuid: uuidv4(),
             bien_uuid: bien.uuid,

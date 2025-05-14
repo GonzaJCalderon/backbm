@@ -221,8 +221,6 @@ const normalizarFotosSubidas = (input) => {
 
 
 
-
-
 const registrarCompra = async (req, res) => {
   const transaction = await sequelize.transaction();
 
@@ -232,72 +230,27 @@ const registrarCompra = async (req, res) => {
     const usuario = req.user;
     const compradorId = comprador.uuid;
 
+    const uploadedPhotos = req.uploadedPhotos || {}; // ✅ aquí llegan las fotos parseadas
     const transaccionesRegistradas = [];
 
-    for (const bien of bienesArray) {
+    for (let index = 0; index < bienesArray.length; index++) {
+      const bien = bienesArray[index];
       const cantidad = parseInt(bien.cantidad);
       const precio = parseFloat(bien.precio);
       const tipo = bien.tipo?.toLowerCase();
       const esTelefono = tipo.includes('teléfono');
 
-      let bienExistente = await Bien.findOne({ where: { uuid: bien.uuid }, transaction });
+      // Buscar bien original
+      const bienExistente = await Bien.findOne({
+        where: { uuid: bien.uuid },
+        transaction,
+      });
 
       if (!bienExistente) {
-        bienExistente = await Bien.create({
-          uuid: uuidv4(),
-          tipo: bien.tipo,
-          marca: bien.marca,
-          modelo: bien.modelo,
-          descripcion: bien.descripcion,
-          precio,
-          propietario_uuid: vendedorId,
-          registrado_por_uuid: vendedorId,
-          fotos: bien.fotos || [],
-        }, { transaction });
-
-        await Stock.create({
-          uuid: uuidv4(),
-          bien_uuid: bienExistente.uuid,
-          propietario_uuid: vendedorId,
-          cantidad: esTelefono ? 0 : cantidad,
-        }, { transaction });
-
-        const detallesToCreate = esTelefono
-          ? (bien.imeis || []).map(i => ({
-              uuid: uuidv4(),
-              bien_uuid: bienExistente.uuid,
-              identificador_unico: i.imei,
-              estado: 'disponible',
-              propietario_uuid: vendedorId,
-              foto: i.foto || null,
-            }))
-          : Array.from({ length: cantidad }).map((_, j) => ({
-              uuid: uuidv4(),
-              bien_uuid: bienExistente.uuid,
-              identificador_unico: uuidv4(),
-              estado: 'disponible',
-              propietario_uuid: vendedorId,
-              foto: bien.fotos?.[j] || bien.fotos?.[0] || null,
-            }));
-
-        await DetallesBien.bulkCreate(detallesToCreate, { transaction });
+        throw new Error(`❌ No se encontró el bien con UUID: ${bien.uuid}`);
       }
 
-      const transaccion = await Transaccion.create({
-        uuid: uuidv4(),
-        fecha: new Date(),
-        monto: precio * cantidad,
-        precio,
-        cantidad,
-        metodoPago: bien.metodoPago || 'efectivo',
-        vendedor_uuid: vendedorId,
-        comprador_uuid: compradorId,
-        bien_uuid: bienExistente.uuid,
-        fotos: bien.fotos || [],
-        representado_por_uuid: usuario.uuid,
-        comprador_representado_empresa_uuid: usuario.empresaUuid || null,
-      }, { transaction });
-
+      // Buscar detalles disponibles
       const detallesDisponibles = await DetallesBien.findAll({
         where: {
           bien_uuid: bienExistente.uuid,
@@ -309,12 +262,79 @@ const registrarCompra = async (req, res) => {
       });
 
       if (detallesDisponibles.length < cantidad) {
-        throw new Error(`No hay suficientes unidades disponibles para ${bien.modelo}`);
+        throw new Error(`❌ No hay suficientes unidades disponibles para ${bien.modelo}`);
       }
 
-      for (const detalle of detallesDisponibles) {
-        detalle.estado = 'activo';
+      // ✅ FOTOS: del bien general
+      const fotosDelBien = uploadedPhotos[index]?.fotos || bien.fotos || [];
+
+      // Buscar/crear bien clonado para comprador
+      let bienDelComprador = await Bien.findOne({
+        where: {
+          tipo: bienExistente.tipo,
+          marca: bienExistente.marca,
+          modelo: bienExistente.modelo,
+          propietario_uuid: compradorId,
+        },
+        transaction,
+      });
+
+      if (!bienDelComprador) {
+        bienDelComprador = await Bien.create({
+          uuid: uuidv4(),
+          tipo: bienExistente.tipo,
+          marca: bienExistente.marca,
+          modelo: bienExistente.modelo,
+          descripcion: bienExistente.descripcion,
+          precio: bienExistente.precio,
+          propietario_uuid: compradorId,
+          registrado_por_uuid: usuario.uuid,
+          fotos: fotosDelBien,
+        }, { transaction });
+
+        await Stock.create({
+          uuid: uuidv4(),
+          bien_uuid: bienDelComprador.uuid,
+          propietario_uuid: compradorId,
+          cantidad: 0,
+        }, { transaction });
+      }
+
+      // Crear la transacción
+      const transaccion = await Transaccion.create({
+        uuid: uuidv4(),
+        fecha: new Date(),
+        monto: precio * cantidad,
+        precio,
+        cantidad,
+        metodoPago: bien.metodoPago || 'efectivo',
+        vendedor_uuid: vendedorId,
+        comprador_uuid: compradorId,
+        bien_uuid: bienDelComprador.uuid,
+        fotos: fotosDelBien, // ✅ fotos en la transacción
+        representado_por_uuid: usuario.uuid,
+        comprador_representado_empresa_uuid: usuario.empresaUuid || null,
+      }, { transaction });
+
+      // Transferir detalles
+      for (let i = 0; i < detallesDisponibles.length; i++) {
+        const detalle = detallesDisponibles[i];
+        detalle.estado = 'disponible';
         detalle.propietario_uuid = compradorId;
+        detalle.bien_uuid = bienDelComprador.uuid;
+
+        // ✅ FOTO por IMEI
+        if (esTelefono) {
+          const fotoImei = uploadedPhotos[index]?.imeiFotos?.[i];
+          if (fotoImei) {
+            detalle.foto = fotoImei;
+          }
+        } else {
+          if (!detalle.foto && fotosDelBien.length > 0) {
+            detalle.foto = fotosDelBien[0];
+          }
+        }
+
         await detalle.save({ transaction });
 
         await TransaccionDetalle.create({
@@ -323,15 +343,38 @@ const registrarCompra = async (req, res) => {
         }, { transaction });
       }
 
+      // Actualizar stock del comprador
+      let stockComprador = await Stock.findOne({
+        where: {
+          bien_uuid: bienDelComprador.uuid,
+          propietario_uuid: compradorId,
+        },
+        transaction,
+      });
+
+      if (!stockComprador) {
+        await Stock.create({
+          uuid: uuidv4(),
+          bien_uuid: bienDelComprador.uuid,
+          propietario_uuid: compradorId,
+          cantidad: detallesDisponibles.length,
+        }, { transaction });
+      } else {
+        stockComprador.cantidad += detallesDisponibles.length;
+        await stockComprador.save({ transaction });
+      }
+
       transaccionesRegistradas.push(transaccion);
     }
 
     await transaction.commit();
+
     return res.status(201).json({
       success: true,
       message: '✅ Compra registrada correctamente.',
       transacciones: transaccionesRegistradas,
     });
+
   } catch (error) {
     await transaction.rollback();
     console.error('❌ Error en registrarCompra:', error);
@@ -342,6 +385,9 @@ const registrarCompra = async (req, res) => {
     });
   }
 };
+
+
+
 
 const registrarVenta = async (req, res) => {
   const transaction = await sequelize.transaction();
@@ -354,6 +400,7 @@ const registrarVenta = async (req, res) => {
     const compradorData = req.body.comprador || null;
     let compradorId = req.body.compradorId;
 
+    // Crear usuario si se vende a un tercero nuevo
     if (!compradorId && compradorData?.dni && compradorData?.email) {
       const nuevoComprador = await crearUsuarioPorTercero(compradorData, vendedorReal);
       compradorId = nuevoComprador.uuid;
@@ -368,14 +415,14 @@ const registrarVenta = async (req, res) => {
       throw new Error('ventaData no es JSON válido');
     }
 
-    const fotosCargadas = req.uploadedPhotosVenta || {};
-    console.log('\n🧾 DEBUG VENTA - Backend recibió:\n', JSON.stringify({ body: req.body, fotosCargadas }, null, 2));
+    const fotosCargadas = req.uploadedPhotos || req.uploadedPhotosVenta || {};
+    console.log('\n📷 DEBUG FOTOS SUBIDAS:\n', JSON.stringify(fotosCargadas, null, 2));
 
     for (let i = 0; i < bienesArray.length; i++) {
       const bien = bienesArray[i];
       const fotosBien = fotosCargadas[i]?.fotos || [];
 
-      // Crear bien si es nuevo
+      // 📦 Si el bien NO existe aún, lo creamos
       if (!bien.uuid) {
         const nuevoBienUUID = uuidv4();
 
@@ -398,6 +445,7 @@ const registrarVenta = async (req, res) => {
           cantidad: bien.cantidad,
         }, { transaction });
 
+        // 📲 Si es teléfono, registrar IMEIs con fotos
         if (bien.tipo.toLowerCase().includes('teléfono')) {
           for (let k = 0; k < (bien.imeis || []).length; k++) {
             const imei = bien.imeis[k];
@@ -427,7 +475,7 @@ const registrarVenta = async (req, res) => {
           }
         }
 
-        bien.uuid = nuevoBienUUID;
+        bien.uuid = nuevoBienUUID; // Actualizamos el bien con su nuevo UUID
       }
 
       const bienExistente = await Bien.findOne({
@@ -435,10 +483,9 @@ const registrarVenta = async (req, res) => {
         transaction,
       });
 
-      if (!bienExistente) {
-        throw new Error(`Bien no encontrado con UUID: ${bien.uuid}`);
-      }
+      if (!bienExistente) throw new Error(`Bien no encontrado con UUID: ${bien.uuid}`);
 
+      // 🖼️ Actualizar fotos del bien si vienen nuevas
       if (fotosBien.length > 0) {
         await Bien.update({ fotos: fotosBien }, {
           where: { uuid: bien.uuid },
@@ -446,7 +493,7 @@ const registrarVenta = async (req, res) => {
         });
       }
 
-      // Transacción
+      // 🧾 Crear transacción
       const transaccion = await Transaccion.create({
         uuid: uuidv4(),
         fecha: new Date(),
@@ -462,7 +509,7 @@ const registrarVenta = async (req, res) => {
         fotos: fotosBien,
       }, { transaction });
 
-      // Obtener detalles que se venden
+      // 🔍 Obtener detalles disponibles a vender
       const imeisRecibidos = Array.isArray(bien.imeis)
         ? bien.imeis.map(i => i.imei).filter(Boolean)
         : [];
@@ -474,17 +521,27 @@ const registrarVenta = async (req, res) => {
           where: {
             bien_uuid: bien.uuid,
             propietario_uuid: vendedorReal,
+            estado: 'disponible',
           },
           transaction,
         });
 
         detallesVendidos = detalles.filter(d =>
-          d.estado === 'disponible' && imeisRecibidos.includes(d.identificador_unico)
+          imeisRecibidos.includes(d.identificador_unico)
         );
 
         if (detallesVendidos.length < imeisRecibidos.length) {
           throw new Error(`No todos los IMEIs están disponibles para ${bien.modelo}.`);
         }
+
+        // Actualizar fotos de los IMEIs si vienen
+        for (let k = 0; k < detallesVendidos.length; k++) {
+          const imeiFoto = fotosCargadas[i]?.imeiFotos?.[k];
+          if (imeiFoto) {
+            detallesVendidos[k].foto = imeiFoto;
+          }
+        }
+
       } else {
         detallesVendidos = await DetallesBien.findAll({
           where: {
@@ -499,9 +556,16 @@ const registrarVenta = async (req, res) => {
         if (detallesVendidos.length < bien.cantidad) {
           throw new Error(`No hay suficientes unidades disponibles para ${bien.modelo}.`);
         }
+
+        // Agregar foto genérica si no tienen
+        detallesVendidos.forEach((detalle, index) => {
+          if (!detalle.foto && fotosBien.length > 0) {
+            detalle.foto = fotosBien[index] || fotosBien[0];
+          }
+        });
       }
 
-      // 👇 CREAR BIEN PARA COMPRADOR si no lo tiene
+      // 🧱 Crear bien para el comprador si no existe
       let bienDelComprador = await Bien.findOne({
         where: {
           tipo: bien.tipo,
@@ -529,11 +593,11 @@ const registrarVenta = async (req, res) => {
           uuid: uuidv4(),
           bien_uuid: bienDelComprador.uuid,
           propietario_uuid: compradorId,
-          cantidad: 0, // se suma abajo
+          cantidad: 0,
         }, { transaction });
       }
 
-      // Transferencia de detalles
+      // 💾 Transferir los detalles vendidos
       for (const detalle of detallesVendidos) {
         detalle.estado = 'disponible';
         detalle.propietario_uuid = compradorId;
@@ -546,9 +610,12 @@ const registrarVenta = async (req, res) => {
         }, { transaction });
       }
 
-      // Actualizar stock
+      // 📈 Actualizar stock del comprador
       const stockComprador = await Stock.findOne({
-        where: { bien_uuid: bienDelComprador.uuid, propietario_uuid: compradorId },
+        where: {
+          bien_uuid: bienDelComprador.uuid,
+          propietario_uuid: compradorId,
+        },
         transaction,
       });
 
@@ -577,6 +644,9 @@ const registrarVenta = async (req, res) => {
     });
   }
 };
+
+
+
 
 
 
