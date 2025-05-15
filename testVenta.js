@@ -1,7 +1,8 @@
 const { sequelize } = require('./src/models');
 const { v4: uuidv4 } = require('uuid');
-const { crearBien } = require('./src/controllers/bienesController'); // ⚠️ ajustá el path si es necesario
+const { crearBien } = require('./src/controllers/bienesController');
 const { registrarVenta } = require('./src/controllers/transaccionesController');
+const { Stock } = require('./src/models');
 
 (async () => {
   console.log("📡 Conectando a la base de datos: Local");
@@ -13,37 +14,21 @@ const { registrarVenta } = require('./src/controllers/transaccionesController');
     const vendedorUUID = '0403b035-7cee-4961-8eb5-4425639a9c29';
     const compradorUUID = '1fb7ae08-7bb2-4257-8df1-f41afa35d7a5';
 
-    // ⚙️ SIMULAR REQ/RES PARA crearBien
     const bienesParaVenta = [
       {
         tipo: 'telefono',
         marca: 'Samsung',
-        modelo: 'Galaxy S22',
+        modelo: 'Galaxy S22 Ultra',
         descripcion: 'Smartphone Samsung',
         precio: 800,
         stock: 2,
         imei: [
-          { imei: '357634099234125', foto: 'https://res.cloudinary.com/dtx5ziooo/image/upload/v1681337331/imei1.jpg' },
-          { imei: '357634099234126', foto: 'https://res.cloudinary.com/dtx5ziooo/image/upload/v1681337331/imei2.jpg' }
+          { imei: '457634099234135', foto: 'https://res.cloudinary.com/dtx5ziooo/image/upload/v1681337331/imei1.jpg' },
+          { imei: '457634099234176', foto: 'https://res.cloudinary.com/dtx5ziooo/image/upload/v1681337331/imei2.jpg' }
         ],
         fotos: [
           'https://res.cloudinary.com/dtx5ziooo/image/upload/v1681337331/s22-front.jpg',
           'https://res.cloudinary.com/dtx5ziooo/image/upload/v1681337331/s22-back.jpg'
-        ]
-      },
-      {
-        tipo: 'telefono',
-        marca: 'Apple',
-        modelo: 'iPhone 13',
-        descripcion: 'iPhone 13',
-        precio: 1200,
-        stock: 1,
-        imei: [
-          { imei: '358765432109876', foto: 'https://res.cloudinary.com/dtx5ziooo/image/upload/v1681337331/imei3.jpg' }
-        ],
-        fotos: [
-          'https://res.cloudinary.com/dtx5ziooo/image/upload/v1681337331/iphone13-front.jpg',
-          'https://res.cloudinary.com/dtx5ziooo/image/upload/v1681337331/iphone13-back.jpg'
         ]
       }
     ];
@@ -89,7 +74,6 @@ const { registrarVenta } = require('./src/controllers/transaccionesController');
       await crearBien(reqMock, resMock);
     }
 
-    // 🧾 ARMAR DATOS PARA registrarVenta
     const ventaBienes = bienesRegistrados.map(bien => ({
       uuid: bien.uuid,
       tipo: bien.tipo,
@@ -105,6 +89,16 @@ const { registrarVenta } = require('./src/controllers/transaccionesController');
       }))
     }));
 
+    // 🧮 Obtener stock antes de la venta
+    const stockAntes = await Stock.findOne({
+      where: {
+        bien_uuid: bienesRegistrados[0].uuid,
+        propietario_uuid: vendedorUUID
+      }
+    });
+
+    console.log(`📦 Stock antes de la venta: ${stockAntes.cantidad}`);
+
     const ventaReq = {
       body: {
         compradorId: compradorUUID,
@@ -116,8 +110,25 @@ const { registrarVenta } = require('./src/controllers/transaccionesController');
 
     const ventaRes = {
       status: (code) => ({
-        json: (data) => {
+        json: async (data) => {
           console.log(`✅ Respuesta HTTP ${code}:\n`, JSON.stringify(data, null, 2));
+
+          // Verificar el stock luego de la venta
+          const stockDespues = await Stock.findOne({
+            where: {
+              bien_uuid: bienesRegistrados[0].uuid,
+              propietario_uuid: vendedorUUID
+            }
+          });
+
+          console.log(`📉 Stock después de la venta: ${stockDespues.cantidad}`);
+
+          const diferencia = stockAntes.cantidad - stockDespues.cantidad;
+          if (diferencia !== bienesRegistrados[0].stock) {
+            throw new Error(`❌ ERROR: No se descontó correctamente el stock. Diferencia: ${diferencia}`);
+          } else {
+            console.log("✅ El stock fue descontado correctamente.");
+          }
         }
       })
     };
@@ -126,5 +137,7 @@ const { registrarVenta } = require('./src/controllers/transaccionesController');
 
   } catch (error) {
     console.error("❌ Error en testVenta:", error);
+  } finally {
+    await sequelize.close();
   }
 })();
