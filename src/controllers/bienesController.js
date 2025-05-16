@@ -758,21 +758,20 @@ const obtenerTrazabilidadPorIdentificador = async (req, res) => {
 
 
 
-
 const obtenerBienesPorEmpresa = async (req, res) => {
   const { uuid } = req.params;
 
-  try {
-    if (!uuid) {
-      return res.status(400).json({ message: 'Falta el UUID de la empresa.' });
-    }
+  if (!uuid || !isUUID(uuid)) {
+    return res.status(400).json({ message: 'UUID inválido para la empresa.' });
+  }
 
+  try {
     const bienes = await Bien.findAll({
       include: [
         {
           model: Stock,
           as: 'stocks',
-          where: { propietario_uuid: uuid }, // ✅ SOLO stocks que pertenecen a la empresa
+          where: { propietario_uuid: uuid },
           attributes: ['cantidad', 'propietario_uuid'],
           required: true,
         },
@@ -819,16 +818,20 @@ const obtenerBienesPorEmpresa = async (req, res) => {
 
 
 
-// ✅ Nuevo controller: obtenerBienesPorPropietario
 
 
 
-// ✅ Controller actualizado: obtenerBienesPorPropietario con paginación + búsqueda
+// ✅ Controller actualizado: obtenerBienesPorPropietario con validación de UUID + paginación + búsqueda
 const obtenerBienesPorPropietario = async (req, res) => {
   const { propietarioUuid } = req.params;
   const limit = parseInt(req.query.limit, 10) || 30;
   const offset = parseInt(req.query.offset, 10) || 0;
   const search = req.query.search || '';
+
+  // 🚨 Validación temprana del UUID
+  if (!propietarioUuid || !isUUID(propietarioUuid)) {
+    return res.status(400).json({ message: 'UUID de propietario inválido.' });
+  }
 
   try {
     const { count, rows: bienes } = await Bien.findAndCountAll({
@@ -891,6 +894,7 @@ const obtenerBienesPorPropietario = async (req, res) => {
     return res.status(500).json({ message: 'Error interno al obtener bienes del propietario.' });
   }
 };
+
 
 
 
