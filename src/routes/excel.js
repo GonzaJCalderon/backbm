@@ -1,5 +1,5 @@
 const express = require('express');
-const { verifyToken } = require('../middlewares/authMiddleware');
+const { verifyToken } = require('../middlewares/authJwt');
 const { uploadExcel, multerErrorHandler } = require('../middlewares/uploadExcel');
 const { uploadFotosMiddleware } = require('../middlewares/uploadFotos');
 const excelController = require('../controllers/excelController'); // ✅ Asegurate que sea el nombre correcto
