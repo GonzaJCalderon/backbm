@@ -159,6 +159,7 @@ const isValidIMEI = (imei) => {
 
 
 
+
 const crearBien = async (req, res) => {
   const transaction = await sequelize.transaction();
 
@@ -193,23 +194,26 @@ const crearBien = async (req, res) => {
     }
 
     // 📷 Fotos generales del bien
-    const fotosDelBien = req.uploadedPhotosVenta?.[0]?.fotos || [];
+    const fotosDelBien =
+      req.uploadedPhotos?.[0]?.fotos ||
+      req.uploadedPhotosVenta?.[0]?.fotos ||
+      [];
 
-    // ❌ Evitar duplicados
+    // ❌ Evitar duplicados si overridePermiso es true
     const bienExistente = await Bien.findOne({
       where: { tipo, marca, modelo, propietario_uuid },
       transaction,
     });
 
     if (overridePermiso === 'true' && bienExistente) {
-      await transaction.rollback();
+      if (transaction && !transaction.finished) await transaction.rollback();
       return res.status(409).json({
         success: false,
         message: '❌ Este bien ya está registrado para el vendedor.',
       });
     }
 
-    // ✅ Crear bien
+    // ✅ Crear el bien
     const bien = await Bien.create({
       uuid: uuidv4(),
       tipo,
@@ -222,7 +226,7 @@ const crearBien = async (req, res) => {
       registrado_por_uuid,
     }, { transaction });
 
-    // 📦 Crear stock
+    // 📦 Crear Stock
     const stockParsed = typeof stock === 'string' ? JSON.parse(stock) : stock;
     const cantidadStock = parseInt(stockParsed?.cantidad || stockParsed, 10);
 
@@ -233,14 +237,18 @@ const crearBien = async (req, res) => {
       propietario_uuid,
     }, { transaction });
 
-    // 📲 Si es teléfono, procesar IMEIs
+    // 📲 Procesar IMEIs si es un teléfono
     const imeisCreados = [];
 
     if (tipo.toLowerCase().includes('teléfono')) {
       let imeis = [];
 
       try {
-        imeis = typeof imei === 'string' ? JSON.parse(imei) : Array.isArray(imei) ? imei : [];
+        imeis = typeof imei === 'string'
+          ? JSON.parse(imei)
+          : Array.isArray(imei)
+            ? imei
+            : [];
       } catch {
         imeis = [];
       }
@@ -255,7 +263,11 @@ const crearBien = async (req, res) => {
         });
 
         if (!yaExiste) {
-        const fotoImei = req.uploadedPhotos?.[0]?.imeiFotos?.[i] || null;
+          const fotoImei =
+            req.uploadedPhotos?.[0]?.imeiFotos?.[i] ||
+            req.uploadedPhotosVenta?.[0]?.imeiFotos?.[i] ||
+            null;
+
           const detalle = await DetallesBien.create({
             uuid: uuidv4(),
             bien_uuid: bien.uuid,
@@ -263,7 +275,7 @@ const crearBien = async (req, res) => {
             identificador_unico: imeiData.imei,
             estado: 'disponible',
             foto: fotoImei,
-            precio: parseFloat(imeiData.precio) || 0, // 💥 PRECIO INDIVIDUAL AQUÍ
+            precio: parseFloat(imeiData.precio) || 0,
           }, { transaction });
 
           imeisCreados.push({
@@ -273,7 +285,7 @@ const crearBien = async (req, res) => {
         }
       }
     } else {
-      // 🧱 Bien sin IMEIs (ej: TV, notebook, etc)
+      // 📦 Crear identificadores para bienes sin IMEI
       const identificadores = [];
 
       for (let i = 0; i < cantidadStock; i++) {
@@ -309,8 +321,13 @@ const crearBien = async (req, res) => {
     });
 
   } catch (error) {
-    await transaction.rollback();
     console.error('❌ Error al registrar bien:', error);
+
+    // ✅ Protección contra rollback doble
+    if (transaction && !transaction.finished) {
+      await transaction.rollback();
+    }
+
     return res.status(500).json({
       success: false,
       message: 'Error al registrar el bien.',
@@ -318,6 +335,9 @@ const crearBien = async (req, res) => {
     });
   }
 };
+
+
+
 
 
 
@@ -738,21 +758,20 @@ const obtenerTrazabilidadPorIdentificador = async (req, res) => {
 
 
 
-
 const obtenerBienesPorEmpresa = async (req, res) => {
   const { uuid } = req.params;
 
-  try {
-    if (!uuid) {
-      return res.status(400).json({ message: 'Falta el UUID de la empresa.' });
-    }
+  if (!uuid || !isUUID(uuid)) {
+    return res.status(400).json({ message: 'UUID inválido para la empresa.' });
+  }
 
+  try {
     const bienes = await Bien.findAll({
       include: [
         {
           model: Stock,
           as: 'stocks',
-          where: { propietario_uuid: uuid }, // ✅ SOLO stocks que pertenecen a la empresa
+          where: { propietario_uuid: uuid },
           attributes: ['cantidad', 'propietario_uuid'],
           required: true,
         },
@@ -799,16 +818,20 @@ const obtenerBienesPorEmpresa = async (req, res) => {
 
 
 
-// ✅ Nuevo controller: obtenerBienesPorPropietario
 
 
 
-// ✅ Controller actualizado: obtenerBienesPorPropietario con paginación + búsqueda
+// ✅ Controller actualizado: obtenerBienesPorPropietario con validación de UUID + paginación + búsqueda
 const obtenerBienesPorPropietario = async (req, res) => {
   const { propietarioUuid } = req.params;
   const limit = parseInt(req.query.limit, 10) || 30;
   const offset = parseInt(req.query.offset, 10) || 0;
   const search = req.query.search || '';
+
+  // 🚨 Validación temprana del UUID
+  if (!propietarioUuid || !isUUID(propietarioUuid)) {
+    return res.status(400).json({ message: 'UUID de propietario inválido.' });
+  }
 
   try {
     const { count, rows: bienes } = await Bien.findAndCountAll({
@@ -871,6 +894,7 @@ const obtenerBienesPorPropietario = async (req, res) => {
     return res.status(500).json({ message: 'Error interno al obtener bienes del propietario.' });
   }
 };
+
 
 
 
