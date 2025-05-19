@@ -1118,21 +1118,27 @@ const obtenerUsuarioDetalles = async (req, res) => {
   console.log('➡️ UUID recibido:', uuid);
 
   try {
-    const usuario = await Usuario.findOne({
-      where: { uuid },
-      include: [
-        {
-          model: Bien,
-          as: 'bienesComprados',
-          attributes: ['descripcion', 'marca', 'modelo'],
-        },
-        {
-          model: Bien,
-          as: 'bienesVendidos',
-          attributes: ['descripcion', 'marca', 'modelo'],
-        },
-      ],
-    });
+  const usuario = await Usuario.findOne({
+  where: { uuid },
+  include: [
+    {
+      model: Empresa,
+      as: 'empresa', // ⚠️ esto depende de tu asociación, pero parece correcto
+      attributes: ['uuid', 'razonSocial', 'cuit', 'email', 'direccion', 'estado', 'createdAt']
+    },
+    {
+      model: Bien,
+      as: 'bienesComprados',
+      attributes: ['descripcion', 'marca', 'modelo'],
+    },
+    {
+      model: Bien,
+      as: 'bienesVendidos',
+      attributes: ['descripcion', 'marca', 'modelo'],
+    },
+  ],
+});
+
 
     if (!usuario) {
       console.warn('⚠️ Usuario no encontrado');
