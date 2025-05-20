@@ -373,6 +373,7 @@ router.put('/:uuid/reenviar', async (req, res) => {
     res.status(500).json({ message: 'Error interno al reenviar solicitud.' });
   }
 });
+
 router.get('/usuario/:uuid', async (req, res) => {
   const { uuid } = req.params;
 
