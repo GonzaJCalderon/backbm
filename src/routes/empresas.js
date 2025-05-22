@@ -11,6 +11,9 @@ router.get('/:uuid', verifyToken, verificarPermisos(['admin', 'moderador']), emp
 router.post('/', verifyToken, verificarPermisos(['admin']), empresaController.crearEmpresa);
 router.put('/:uuid', verifyToken, verificarPermisos(['admin']), empresaController.actualizarEmpresa);
 router.delete('/:uuid', verifyToken, verificarPermisos(['admin']), empresaController.eliminarEmpresa);
+// Asociar delegado a empresa específica
+router.post('/:uuid/asociar-delegado', verifyToken, verificarPermisos(['admin']), empresaController.asociarDelegado);
+
 
 router.delete('/delegado/:uuid', verifyToken, empresaController.eliminarDelegadoPorResponsable);
 

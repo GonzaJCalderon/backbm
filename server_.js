@@ -47,7 +47,7 @@ try {
 
   app.use('/excel', require('./src/routes/excel'));
 
-  app.use('/historialcambios', require('./src/routes/HistorialCambios'));
+  app.use('/historialcambios', require('./src/routes/historialCambios'));
 
   app.use('/uploads', require('./src/routes/uploads'));
 

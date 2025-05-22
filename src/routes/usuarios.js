@@ -147,6 +147,7 @@ router.post('/registrar-delegado', verifyToken, verificarEmpresaJuridica, usuari
 
 
 
+
 router.post('/update-account/:token', async (req, res) => {
   const { token } = req.params;
   const { newPassword, nombre, apellido } = req.body;
@@ -452,6 +453,8 @@ router.patch(
     return res.status(200).json({ message: `Usuario ${activo ? 'activado' : 'desactivado'} correctamente.` });
   }
 );
+
+
 
 
 
