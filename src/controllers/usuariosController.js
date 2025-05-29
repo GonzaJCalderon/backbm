@@ -969,7 +969,11 @@ const eliminarUsuario = async (req, res) => {
       return res.status(404).json({ message: 'Usuario no encontrado' });
     }
 
-    // ⚠️ Verificamos permisos
+    // 🚫 Bloqueo por rol del usuario objetivo
+    if (['admin', 'moderador'].includes((usuario.rolDefinitivo || '').toLowerCase())) {
+      return res.status(403).json({ message: 'No está permitido eliminar usuarios con rol admin o moderador.' });
+    }
+
     const isAdmin = userRequesting.rolDefinitivo === 'admin';
     const esResponsableYDelegado = (
       userRequesting.tipo === 'juridica' &&
@@ -988,6 +992,7 @@ const eliminarUsuario = async (req, res) => {
     res.status(500).json({ message: 'Error al eliminar usuario.' });
   }
 };
+
 
 
 
@@ -1269,7 +1274,8 @@ const solicitarResetPassword = async (req, res) => {
     });
 
     // 🔹 Construcción del enlace de reseteo
-    const resetLink = `${process.env.FRONTEND_URL}/reset-password/${resetToken}`;
+const resetLink = `https://regbim.minsegmza.gob.ar/reset-password/${resetToken}`;
+
 
     // 🔹 URL del logo en Cloudinary
     const logoSrc = 'https://res.cloudinary.com/dtx5ziooo/image/upload/v1739288789/logo-png-sin-fondo_lyddzv.png';
