@@ -154,6 +154,10 @@ TransaccionDetalle.belongsTo(DetallesBien, {
 });
 
 
+Usuario.belongsTo(Empresa, { foreignKey: 'empresa_uuid', as: 'empresaAsignada' });
+Empresa.hasMany(Usuario, { foreignKey: 'empresa_uuid', as: 'usuariosAsignados' });
+
+
 // Exportar modelos
 module.exports = {
   sequelize,

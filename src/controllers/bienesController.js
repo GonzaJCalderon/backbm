@@ -371,35 +371,61 @@ const crearBien = async (req, res) => {
 const actualizarBien = async (req, res) => {
   try {
     const { uuid } = req.params;
-    const { descripcion, precio, tipo, marca, modelo, existingImages } = req.body;
+    const {
+      descripcion,
+      precio,
+      tipo,
+      marca,
+      modelo,
+      existingImages,
+      stock
+    } = req.body;
 
-    // Buscar el bien
     const bien = await Bien.findOne({ where: { uuid } });
     if (!bien) {
       return res.status(404).json({ message: 'Bien no encontrado.' });
     }
 
-    // Actualizar datos básicos
+    // ✅ Actualizar campos
     bien.descripcion = descripcion || bien.descripcion;
-    bien.precio = precio || bien.precio;
+    bien.precio = parseFloat(precio) || bien.precio;
     bien.tipo = tipo || bien.tipo;
     bien.marca = marca || bien.marca;
     bien.modelo = modelo || bien.modelo;
 
-    // Manejar imágenes existentes y nuevas
-    const updatedExistingImages = JSON.parse(existingImages || '[]');
-    const newImages = req.uploadedPhotos || [];
+    if (stock !== undefined) {
+      bien.stock = parseInt(stock);
+    }
 
-    bien.fotos = [...updatedExistingImages, ...newImages];
+    // ✅ Manejo seguro de imágenes existentes
+    let updatedExistingImages = [];
+    try {
+      updatedExistingImages = Array.isArray(existingImages)
+        ? existingImages
+        : JSON.parse(existingImages || '[]');
+    } catch {
+      updatedExistingImages = [];
+    }
 
-    // Guardar cambios
+    // ✅ Recuperar imágenes nuevas desde uploadFotosMiddleware
+    const fotosNuevas = req.uploadedPhotos?.[0]?.fotos || [];
+
+    bien.fotos = [...updatedExistingImages, ...fotosNuevas];
+
     await bien.save();
 
-    res.status(200).json(bien);
+    return res.status(200).json(bien);
+
   } catch (error) {
-    res.status(500).json({ message: 'Error actualizando el bien.', error: error.message });
+    console.error('❌ Error actualizando bien:', error);
+    return res.status(500).json({
+      message: 'Error actualizando el bien.',
+      error: error.message
+    });
   }
 };
+
+
 
 
 

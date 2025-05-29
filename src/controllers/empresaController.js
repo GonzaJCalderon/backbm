@@ -411,6 +411,56 @@ const editarEmpresa = async (req, res) => {
   }
 };
 
+// Asociar un usuario como delegado a una empresa
+const asociarDelegado = async (req, res) => {
+  const empresaUuid = req.params.uuid;       // UUID de la empresa desde ruta
+  const { usuarioUuid } = req.body;          // UUID del usuario a asociar
+
+  try {
+    // Verificar si la empresa existe
+    const empresa = await Empresa.findOne({ where: { uuid: empresaUuid } });
+    if (!empresa) {
+      return res.status(404).json({ message: 'Empresa no encontrada.' });
+    }
+
+    // Verificar si el usuario existe
+    const usuario = await Usuario.findOne({ where: { uuid: usuarioUuid } });
+    if (!usuario) {
+      return res.status(404).json({ message: 'Usuario no encontrado.' });
+    }
+
+    // Verificar si el usuario ya es delegado de alguna empresa
+    if (usuario.delegadoDeEmpresa === empresaUuid) {
+      return res.status(400).json({ message: 'Este usuario ya es delegado de la empresa.' });
+    }
+
+    // Actualizar el usuario como delegado
+    usuario.delegadoDeEmpresa = empresaUuid;
+    usuario.rolEmpresa = 'delegado';
+    usuario.activo = true;
+
+    await usuario.save();
+
+    res.status(200).json({
+      message: 'Delegado asociado correctamente.',
+      delegado: {
+        uuid: usuario.uuid,
+        nombre: usuario.nombre,
+        apellido: usuario.apellido,
+        email: usuario.email,
+      },
+      empresa: {
+        uuid: empresa.uuid,
+        razonSocial: empresa.razonSocial,
+      },
+    });
+  } catch (error) {
+    console.error('Error al asociar delegado:', error);
+    res.status(500).json({ message: 'Error interno del servidor.' });
+  }
+};
+
+
 
 module.exports = {
   obtenerEmpresas,
@@ -424,6 +474,6 @@ module.exports = {
   obtenerEmpresas: obtenerEmpresasConUsuarios,
   obtenerEmpresaDelDelegado,
   eliminarDelegadoPorResponsable,
-
+ asociarDelegado,
 
 };

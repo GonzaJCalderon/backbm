@@ -969,7 +969,11 @@ const eliminarUsuario = async (req, res) => {
       return res.status(404).json({ message: 'Usuario no encontrado' });
     }
 
-    // ⚠️ Verificamos permisos
+    // 🚫 Bloqueo por rol del usuario objetivo
+    if (['admin', 'moderador'].includes((usuario.rolDefinitivo || '').toLowerCase())) {
+      return res.status(403).json({ message: 'No está permitido eliminar usuarios con rol admin o moderador.' });
+    }
+
     const isAdmin = userRequesting.rolDefinitivo === 'admin';
     const esResponsableYDelegado = (
       userRequesting.tipo === 'juridica' &&
@@ -988,6 +992,7 @@ const eliminarUsuario = async (req, res) => {
     res.status(500).json({ message: 'Error al eliminar usuario.' });
   }
 };
+
 
 
 
@@ -1068,14 +1073,31 @@ const obtenerRolTemporal = async (req, res) => {
   }
 };
 const checkExistingUser = async (req, res) => {
-  const { dni, nombre, apellido } = req.body;
+  const { dni, email, nombre, apellido } = req.body;
 
   try {
-    if (!dni || !nombre || !apellido) {
-      return res.status(400).json({ mensaje: "DNI, nombre y apellido son requeridos." });
+    if (!dni && !email) {
+      return res.status(400).json({
+        mensaje: "Debes proporcionar al menos DNI o email.",
+      });
     }
 
-    const usuario = await Usuario.findOne({ where: { dni, nombre, apellido } });
+    // Construir cláusula dinámica
+    const condiciones = [];
+
+    if (dni) condiciones.push({ dni });
+    if (email) condiciones.push({ email });
+
+    // También agregamos búsqueda más estricta si se proporciona nombre/apellido
+    if (dni && nombre && apellido) {
+      condiciones.push({ dni, nombre, apellido });
+    }
+
+    const usuario = await Usuario.findOne({
+      where: {
+        [Op.or]: condiciones,
+      },
+    });
 
     if (usuario) {
       return res.status(200).json({
@@ -1085,11 +1107,18 @@ const checkExistingUser = async (req, res) => {
       });
     }
 
-    return res.status(200).json({ existe: false, mensaje: "Usuario no encontrado." });
+    return res.status(200).json({
+      existe: false,
+      mensaje: "Usuario no encontrado.",
+    });
   } catch (error) {
-    res.status(500).json({ mensaje: "Error al verificar el usuario.", detalles: error.message });
+    return res.status(500).json({
+      mensaje: "Error al verificar el usuario.",
+      detalles: error.message,
+    });
   }
 };
+
 
 
 
@@ -1112,15 +1141,25 @@ const removerRolTemporal = async (req, res) => {
     res.status(500).json({ message: 'Error al remover rol temporal.', error: error.message });
   }
 };
-
 const obtenerUsuarioDetalles = async (req, res) => {
   const { uuid } = req.query;
   console.log('➡️ UUID recibido:', uuid);
+
+  // ✅ Prevención de error por UUID inválido
+  if (!uuid || uuid === 'nuevo') {
+    console.warn('⚠️ UUID no válido o creación de nuevo usuario. No se hace query.');
+    return res.status(200).json({ usuario: null, mensaje: 'Modo creación: sin datos previos.' });
+  }
 
   try {
     const usuario = await Usuario.findOne({
       where: { uuid },
       include: [
+        {
+          model: Empresa,
+          as: 'empresa',
+          attributes: ['uuid', 'razonSocial', 'cuit', 'email', 'direccion', 'estado', 'createdAt']
+        },
         {
           model: Bien,
           as: 'bienesComprados',
@@ -1135,7 +1174,6 @@ const obtenerUsuarioDetalles = async (req, res) => {
     });
 
     if (!usuario) {
-      console.warn('⚠️ Usuario no encontrado');
       return res.status(404).json({ message: 'Usuario no encontrado.' });
     }
 
@@ -1148,6 +1186,7 @@ const obtenerUsuarioDetalles = async (req, res) => {
     });
   }
 };
+
 
 
 
@@ -1235,7 +1274,8 @@ const solicitarResetPassword = async (req, res) => {
     });
 
     // 🔹 Construcción del enlace de reseteo
-    const resetLink = `${process.env.FRONTEND_URL}/reset-password/${resetToken}`;
+const resetLink = `https://regbim.minsegmza.gob.ar/reset-password/${resetToken}`;
+
 
     // 🔹 URL del logo en Cloudinary
     const logoSrc = 'https://res.cloudinary.com/dtx5ziooo/image/upload/v1739288789/logo-png-sin-fondo_lyddzv.png';
@@ -1456,6 +1496,31 @@ const getEmpresaByUuid = async (req, res) => {
 
 
 
+const asociarDelegadoExistente = async (req, res) => {
+  const { usuarioUuid, empresaUuid } = req.body;
+
+  if (!usuarioUuid || !empresaUuid) {
+    return res.status(400).json({ message: 'Faltan datos' });
+  }
+
+  try {
+    const usuario = await Usuario.findOne({ where: { uuid: usuarioUuid } });
+    if (!usuario) return res.status(404).json({ message: 'Usuario no encontrado' });
+
+    usuario.empresa_uuid = empresaUuid;
+    usuario.delegadoDeEmpresa = empresaUuid;
+    usuario.rolEmpresa = 'delegado';
+
+    await usuario.save();
+
+    return res.status(200).json({ message: 'Delegado asociado correctamente', usuario });
+  } catch (error) {
+    return res.status(500).json({ message: 'Error al asociar delegado', error: error.message });
+  }
+};
+
+
+
 module.exports = {
   crearUsuario,
   login,
@@ -1485,6 +1550,6 @@ module.exports = {
   invitarDelegado,
   activarCuenta, 
   getEmpresaByUuid,
- 
+   asociarDelegadoExistente,
 };
 

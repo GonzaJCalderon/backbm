@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { Usuario } = require('../models'); // Ajusta la ruta según tu estructura de archivos
+const { Usuario, Empresa } = require('../models'); // Ajusta la ruta según tu estructura de archivos
 const jwt = require('jsonwebtoken'); // Importación necesaria
 const bcrypt = require('bcryptjs');
 
@@ -144,6 +144,7 @@ router.get('/dni', verifyToken, verificarPermisos(['admin', 'moderador']), usuar
 router.post('/register-usuario-por-tercero', usuarioController.registerUsuarioPorTercero);
 
 router.post('/registrar-delegado', verifyToken, verificarEmpresaJuridica, usuarioController.registrarDelegadoEmpresa);
+
 
 
 
@@ -376,10 +377,42 @@ router.put('/:uuid/reenviar', async (req, res) => {
 
 router.get('/usuario/:uuid', async (req, res) => {
   const { uuid } = req.params;
-  const usuario = await Usuario.findOne({ where: { uuid } });
-  if (!usuario) return res.status(404).json({ message: 'Usuario no encontrado' });
-  res.json(usuario);
+
+  try {
+    const usuario = await Usuario.findOne({
+      where: { uuid },
+      include: [
+        {
+          model: Empresa,
+          as: 'empresa',
+          attributes: ['uuid', 'razonSocial'],
+        },
+      ],
+    });
+
+    if (!usuario) {
+      return res.status(404).json({ message: 'Usuario no encontrado' });
+    }
+
+    res.json({
+      usuario: {
+        uuid: usuario.uuid,
+        nombre: usuario.nombre,
+        apellido: usuario.apellido,
+        rol: usuario.rolEmpresa || 'desconocido',
+        empresa: usuario.empresa ? {
+          uuid: usuario.empresa.uuid,
+          razonSocial: usuario.empresa.razonSocial
+        } : null
+      },
+    });
+  } catch (error) {
+    res.status(500).json({ message: 'Error interno del servidor' });
+  }
 });
+
+
+
 
 // GET /empresas/:uuid
 router.get('/empresas/:uuid', usuarioController.getEmpresaByUuid);
@@ -420,6 +453,8 @@ router.patch(
     return res.status(200).json({ message: `Usuario ${activo ? 'activado' : 'desactivado'} correctamente.` });
   }
 );
+
+
 
 
 
