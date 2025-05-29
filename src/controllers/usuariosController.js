@@ -142,6 +142,7 @@ const crearUsuario = async (req, res) => {
 };
 
 /* ──────────────── LOGIN ──────────────── */
+/* ──────────────── LOGIN ──────────────── */
 const login = async (req, res) => {
   const { email, password } = req.body;
   try {
@@ -200,6 +201,7 @@ const login = async (req, res) => {
     res.status(500).json({ message: 'Error en login.', error: error.message });
   }
 };
+
 
 const registrarDelegadoEmpresa = async (req, res) => {
   try {
