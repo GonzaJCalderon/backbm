@@ -49,6 +49,8 @@ const crearUsuario = async (req, res) => {
       rolDefinitivo = 'usuario'
     } = req.body;
 
+    email = email.toLowerCase();
+
     if (!email || !password || !tipo) {
       return res.status(400).json({ message: 'Email, contraseña y tipo son obligatorios.' });
     }
@@ -145,6 +147,7 @@ const crearUsuario = async (req, res) => {
 /* ──────────────── LOGIN ──────────────── */
 const login = async (req, res) => {
   const { email, password } = req.body;
+  email = email.toLowerCase()
   try {
     const usuario = await Usuario.findOne({ where: { email } });
 
