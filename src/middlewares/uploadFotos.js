@@ -81,22 +81,50 @@ for (const { file, url } of results) {
   const matchFotosIndexado = fieldName.match(/^fotos_bien_(\d+)_(\d+)$/); // nuevo: fotos_bien_0_1
 
   // 👇 NUEVO: soporta imeiFoto_0, imeiFoto_1
-  const matchImeiFlat = fieldName.match(/^imeiFoto_(\d+)$/);
+const matchImeiIndexed = fieldName.match(/^imeiFoto_(\d+)_(\d+)$/); // imeiFoto_0_0
+const matchImeiFlat = fieldName.match(/^imeiFoto_(\d+)$/);          // imeiFoto_0
+
+if (matchImeiIndexed) {
+  const [_, imeiIndex, fotoIndex] = matchImeiIndexed;
+  const imeiKey = String(imeiIndex);
+  if (!uploadedPhotos["0"]) uploadedPhotos["0"] = { fotos: [], imeiFotos: {} };
+  if (!uploadedPhotos["0"].imeiFotos[imeiKey]) {
+    uploadedPhotos["0"].imeiFotos[imeiKey] = [];
+  }
+  uploadedPhotos["0"].imeiFotos[imeiKey].push(url);
+
+} else if (matchImeiFlat) {
+  const [_, imeiIndex] = matchImeiFlat;
+  const imeiKey = String(imeiIndex);
+  if (!uploadedPhotos["0"]) uploadedPhotos["0"] = { fotos: [], imeiFotos: {} };
+  if (!uploadedPhotos["0"].imeiFotos[imeiKey]) {
+    uploadedPhotos["0"].imeiFotos[imeiKey] = [];
+  }
+  uploadedPhotos["0"].imeiFotos[imeiKey].push(url);
+}
+
+
 
   if (matchFotosClassic) {
     const [_, bienIndex] = matchFotosClassic;
     if (!uploadedPhotos[bienIndex]) uploadedPhotos[bienIndex] = { fotos: [], imeiFotos: {} };
     uploadedPhotos[bienIndex].fotos.push(url);
 
-  } else if (matchImei) {
-    const [_, bienIndex, imeiIndex] = matchImei;
-    if (!uploadedPhotos[bienIndex]) uploadedPhotos[bienIndex] = { fotos: [], imeiFotos: {} };
-    uploadedPhotos[bienIndex].imeiFotos[imeiIndex] = url;
+ } else if (matchImei) {
+  const [_, bienIndex, imeiIndex] = matchImei;
+  if (!uploadedPhotos[bienIndex]) uploadedPhotos[bienIndex] = { fotos: [], imeiFotos: {} };
+  if (!uploadedPhotos[bienIndex].imeiFotos[imeiIndex]) {
+    uploadedPhotos[bienIndex].imeiFotos[imeiIndex] = [];
+  }
+  uploadedPhotos[bienIndex].imeiFotos[imeiIndex].push(url);
 
-  } else if (matchImeiFlat) {
-    const [_, imeiIndex] = matchImeiFlat;
-    if (!uploadedPhotos[0]) uploadedPhotos[0] = { fotos: [], imeiFotos: {} };
-    uploadedPhotos[0].imeiFotos[imeiIndex] = url;
+} else if (matchImeiFlat) {
+  const [_, imeiIndex] = matchImeiFlat;
+  if (!uploadedPhotos[0]) uploadedPhotos[0] = { fotos: [], imeiFotos: {} };
+  if (!uploadedPhotos[0].imeiFotos[imeiIndex]) {
+    uploadedPhotos[0].imeiFotos[imeiIndex] = [];
+  }
+  uploadedPhotos[0].imeiFotos[imeiIndex].push(url);
 
   } else if (matchFotosIndexado) {
     const [_, bienIndex] = matchFotosIndexado;

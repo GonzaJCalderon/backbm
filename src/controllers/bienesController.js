@@ -159,7 +159,6 @@ const isValidIMEI = (imei) => {
 
 
 
-
 const crearBien = async (req, res) => {
   const transaction = await sequelize.transaction();
 
@@ -263,10 +262,27 @@ const crearBien = async (req, res) => {
         });
 
         if (!yaExiste) {
-          const fotoImei =
-            req.uploadedPhotos?.[0]?.imeiFotos?.[i] ||
-            req.uploadedPhotosVenta?.[0]?.imeiFotos?.[i] ||
-            null;
+          const imeiKey = String(i); // 🔧 FIX: esta línea era necesaria
+          const fotosImei =
+            req.uploadedPhotos?.["0"]?.imeiFotos?.[imeiKey] ||
+            req.uploadedPhotos?.[0]?.imeiFotos?.[imeiKey] || [];
+
+          console.log(`🔍 Buscando fotos para IMEI index: ${imeiKey}`);
+          console.log('📸 Fotos encontradas:', fotosImei);
+
+          if (!fotosImei || fotosImei.length === 0) {
+            return res.status(400).json({
+              message: `Debes adjuntar una foto para el IMEI #${i + 1}.`,
+            });
+          }
+
+          const fotoPrincipal = fotosImei[0];
+
+          if (!fotoPrincipal) {
+            return res.status(400).json({
+              message: `Debes adjuntar una foto para el IMEI #${i + 1}.`,
+            });
+          }
 
           const detalle = await DetallesBien.create({
             uuid: uuidv4(),
@@ -274,7 +290,7 @@ const crearBien = async (req, res) => {
             propietario_uuid,
             identificador_unico: imeiData.imei,
             estado: 'disponible',
-            foto: fotoImei,
+            foto: fotoPrincipal,
             precio: parseFloat(imeiData.precio) || 0,
           }, { transaction });
 
@@ -284,6 +300,7 @@ const crearBien = async (req, res) => {
           });
         }
       }
+
     } else {
       // 📦 Crear identificadores para bienes sin IMEI
       const identificadores = [];
@@ -323,7 +340,6 @@ const crearBien = async (req, res) => {
   } catch (error) {
     console.error('❌ Error al registrar bien:', error);
 
-    // ✅ Protección contra rollback doble
     if (transaction && !transaction.finished) {
       await transaction.rollback();
     }
@@ -335,6 +351,7 @@ const crearBien = async (req, res) => {
     });
   }
 };
+
 
 
 

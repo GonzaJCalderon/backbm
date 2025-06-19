@@ -146,8 +146,9 @@ const crearUsuario = async (req, res) => {
 /* ──────────────── LOGIN ──────────────── */
 /* ──────────────── LOGIN ──────────────── */
 const login = async (req, res) => {
-  const { email, password } = req.body;
-  email = email.toLowerCase()
+ let { email, password } = req.body;
+email = email.toLowerCase(); // ✅ ahora sí se puede reasignar
+
   try {
     const usuario = await Usuario.findOne({ where: { email } });
 

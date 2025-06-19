@@ -150,6 +150,7 @@ exports.deleteConversation = async (req, res) => {
     return res.status(500).json({ error: "Error al eliminar conversación." });
   }
 };
+
 exports.getUnreadMessages = async (req, res) => {
   try {
     const { userUuid } = req.params;
@@ -157,12 +158,18 @@ exports.getUnreadMessages = async (req, res) => {
       return res.status(400).json({ message: "UUID del usuario es requerido." });
     }
 
-    const unreadMessages = await Message.findAll({
-      where: {
-        recipientUuid: userUuid,
-        isRead: false,
-      }
-    });
+const unreadMessages = await Message.findAll({
+  where: {
+    isRead: false,
+    [Op.or]: [
+      // 🔹 Mensajes asignados a este admin
+      { recipientUuid: userUuid },
+      { assignedAdminUuid: userUuid },
+      // 🔹 Mensajes sin asignar AÚN (para todos los admins)
+      { isForAdmins: true, assignedAdminUuid: null },
+    ]
+  }
+});
 
 
     return res.status(200).json({ unreadMessages });
@@ -171,6 +178,7 @@ exports.getUnreadMessages = async (req, res) => {
     return res.status(500).json({ message: "Error interno del servidor." });
   }
 };
+
 
 // ✅ Marcar como leídos los mensajes recibidos por el usuario
 exports.markMessagesAsRead = async (req, res) => {
@@ -181,17 +189,21 @@ exports.markMessagesAsRead = async (req, res) => {
       return res.status(400).json({ message: "❌ userUuid requerido." });
     }
 
-    const [affectedRows] = await Message.update(
-      { isRead: true },
-      {
-        where: {
-          recipientUuid: userUuid,
-          isRead: false,
-        },
-      }
-    );
+const [affectedRows] = await Message.update(
+  { isRead: true },
+  {
+    where: {
+      isRead: false,
+      [Op.or]: [
+        { recipientUuid: userUuid },
+        { assignedAdminUuid: userUuid }
+      ]
+    },
+  }
+);
 
-    console.log(`🔔 Mensajes marcados como leídos: ${affectedRows}`);
+console.log(`🔔 Mensajes marcados como leídos por admin ${userUuid}: ${affectedRows}`);
+
 
     res.status(200).json({
       message: "✅ Mensajes marcados como leídos correctamente.",
