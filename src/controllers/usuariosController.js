@@ -772,7 +772,7 @@ const obtenerUsuariosPorEstado = async (req, res) => {
   const { estado } = req.query;
   console.log('👉 Estado recibido:', estado);
 
-  // Validación de estados permitidos
+  // Validación mejorada con estados permitidos
   const estadosValidos = ['pendiente', 'rechazado', 'aprobado'];
   if (!estado || !estadosValidos.includes(estado)) {
     return res.status(400).json({
@@ -780,43 +780,35 @@ const obtenerUsuariosPorEstado = async (req, res) => {
     });
   }
 
+  // Usa [Op.in] para incluir múltiples estados válidos si es necesario:
+  let estadosConsulta = [estado];
+  if (estado === 'pendiente') estadosConsulta.push('pendiente_revision');
+
   try {
-    console.log(`🔍 Buscando usuarios con estado: ${estado}`);
+    console.log(`🔍 Buscando usuarios con estados: ${estadosConsulta}`);
 
     const usuarios = await Usuario.findAll({
-      where: { estado },
+      where: {
+        estado: {
+          [Op.in]: estadosConsulta,
+        },
+      },
       attributes: [
-        'uuid',
-        'nombre',
-        'apellido',
-        'email',
-        'dni',
-        'direccion',
-        'estado',
-        'rolDefinitivo',
-        'rolEmpresa',
-        'delegadoDeEmpresa',   // ✅ corregido
-        'delegadoDeUsuario',   // ✅ corregido
-        'aprobadoPor',
-        'fechaAprobacion',
-        'rechazadoPor',
-        'fechaRechazo',
-        'motivoRechazo',
-        'createdAt',
-        'updatedAt',
+        'uuid', 'nombre', 'apellido', 'email', 'dni', 'direccion', 'estado',
+        'rolDefinitivo', 'rolEmpresa', 'delegadoDeEmpresa', 'delegadoDeUsuario',
+        'aprobadoPor', 'fechaAprobacion', 'rechazadoPor', 'fechaRechazo',
+        'motivoRechazo', 'createdAt', 'updatedAt',
       ],
-      include: [
-        {
-          model: Empresa,
-          as: 'empresa',
-          attributes: ['uuid', 'razonSocial', 'cuit', 'email']
-        }
-      ]
+    include: [{
+  model: Empresa,
+  as: 'empresaAsignada', // 👈 este es el alias correcto si usás `empresa_uuid`
+  attributes: ['uuid', 'razonSocial', 'cuit', 'email']
+}]
+
     });
 
     if (!usuarios.length) return res.status(200).json([]);
 
-    // Obtener nombres de aprobadores y rechazadores
     const aprobadoresIds = [...new Set(usuarios.map(u => u.aprobadoPor).filter(Boolean))];
     const rechazadoresIds = [...new Set(usuarios.map(u => u.rechazadoPor).filter(Boolean))];
 
@@ -828,24 +820,12 @@ const obtenerUsuariosPorEstado = async (req, res) => {
     const aprobadoresMap = Object.fromEntries(aprobadores.map(user => [user.uuid, `${user.nombre} ${user.apellido}`]));
     const rechazadoresMap = Object.fromEntries(rechazadores.map(user => [user.uuid, `${user.nombre} ${user.apellido}`]));
 
-    const usuariosFormateados = usuarios.map(usuario => {
-      let direccionFormateada = null;
-
-      try {
-        direccionFormateada = typeof usuario.direccion === 'string'
-          ? JSON.parse(usuario.direccion)
-          : usuario.direccion;
-      } catch {
-        direccionFormateada = usuario.direccion;
-      }
-
-      return {
-        ...usuario.toJSON(),
-        direccion: direccionFormateada,
-        aprobadoPor: aprobadoresMap[usuario.aprobadoPor] || null,
-        rechazadoPor: rechazadoresMap[usuario.rechazadoPor] || null,
-      };
-    });
+    const usuariosFormateados = usuarios.map(usuario => ({
+      ...usuario.toJSON(),
+      direccion: typeof usuario.direccion === 'string' ? JSON.parse(usuario.direccion) : usuario.direccion,
+      aprobadoPor: aprobadoresMap[usuario.aprobadoPor] || null,
+      rechazadoPor: rechazadoresMap[usuario.rechazadoPor] || null,
+    }));
 
     return res.status(200).json(usuariosFormateados);
   } catch (error) {
@@ -857,6 +837,7 @@ const obtenerUsuariosPorEstado = async (req, res) => {
     });
   }
 };
+
 
 
 

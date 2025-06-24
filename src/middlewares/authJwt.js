@@ -81,19 +81,25 @@ const verifyToken = async (req, res, next) => {
 
 const verificarPermisos = (rolesPermitidos) => {
   return (req, res, next) => {
-    if (!req.user || !req.user.rolDefinitivo) {
+    const rol = req.user?.rolDefinitivo;
+
+    console.log('🔐 Rol en verificarPermisos:', rol);
+    console.log('🎯 Roles permitidos:', rolesPermitidos);
+
+    if (!rol || typeof rol !== 'string') {
       return res.status(403).json({ message: 'No se pudo determinar el rol del usuario.' });
     }
 
-    if (!rolesPermitidos.includes(req.user.rolDefinitivo)) {
+    if (!rolesPermitidos.includes(rol)) {
       return res.status(403).json({
-        message: `No tienes permisos para realizar esta acción. Roles permitidos: ${rolesPermitidos.join(', ')}`
+        message: `No tienes permisos para realizar esta acción. Se requiere uno de: ${rolesPermitidos.join(', ')}`
       });
     }
 
     next();
   };
-}; 
+};
+
 
 // middlewares/authPermisos.js
 const puedeActivarDelegado = (req, res, next) => {

@@ -34,6 +34,7 @@ router.post('/refresh', async (req, res) => {
   const { refreshToken } = req.body;
 
   if (!refreshToken) {
+    console.warn('🚫 No se proporcionó refresh token');
     return res.status(401).json({ message: 'Refresh token no proporcionado.' });
   }
 
@@ -43,13 +44,15 @@ router.post('/refresh', async (req, res) => {
       process.env.REFRESH_SECRET_KEY || 'refresh_bienes'
     );
 
+    console.log('🧾 Decoded refresh token:', decoded);
+
     const usuario = await Usuario.findOne({ where: { uuid: decoded.uuid } });
 
     if (!usuario) {
+      console.warn('❌ Usuario no encontrado para refresh:', decoded.uuid);
       return res.status(404).json({ message: 'Usuario no encontrado para refrescar token.' });
     }
 
-    // ✅ Payload con datos completos
     const payload = {
       uuid: usuario.uuid,
       email: usuario.email,
@@ -59,14 +62,12 @@ router.post('/refresh', async (req, res) => {
       rolEmpresa: usuario.rolEmpresa || null,
     };
 
-    // ⏱ Access token corto (ej: 30 minutos)
     const newAccessToken = jwt.sign(
       payload,
       process.env.JWT_SECRET || 'bienes_muebles',
       { expiresIn: '30m' }
     );
 
-    // 🔁 Nuevo refresh token (rotado)
     const newRefreshToken = jwt.sign(
       { uuid: usuario.uuid },
       process.env.REFRESH_SECRET_KEY || 'refresh_bienes',
@@ -79,10 +80,11 @@ router.post('/refresh', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('❌ Error verificando refresh token:', error);
+    console.error('❌ Error verificando refresh token:', error.name, error.message);
     return res.status(403).json({ message: 'Refresh token inválido o expirado.' });
   }
 });
+
 
 
 
@@ -188,11 +190,18 @@ router.post('/update-account/:token', async (req, res) => {
     return res.status(400).json({ mensaje: 'Token inválido o expirado.' });
   }
 });
+// backend rutas usuarios.js
+router.get(
+  '/usuarios/pendientes',
+  verifyToken,
+  verificarPermisos(['admin', 'moderador']),
+  (req, res) => {
+    req.query.estado = 'pendiente'; // 👈 aquí sí seteamos el estado
+    usuarioController.obtenerUsuariosPorEstado(req, res);
+  }
+);
 
-router.get('/usuarios/pendientes', verifyToken, verificarPermisos(['admin', 'moderador']), (req, res) => {
-  req.query.estado = 'pendiente';
-  usuarioController.obtenerUsuariosPorEstado(req, res);
-});
+
 
 router.get('/usuarios/rechazados', verifyToken, verificarPermisos(['admin', 'moderador']), (req, res) => {
   req.query.estado = 'rechazado';
