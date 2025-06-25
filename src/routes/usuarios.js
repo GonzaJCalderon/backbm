@@ -192,7 +192,7 @@ router.post('/update-account/:token', async (req, res) => {
 });
 // backend rutas usuarios.js
 router.get(
-  '/usuarios/pendientes',
+  '/pendientes',
   verifyToken,
   verificarPermisos(['admin', 'moderador']),
   (req, res) => {
@@ -203,7 +203,7 @@ router.get(
 
 
 
-router.get('/usuarios/rechazados', verifyToken, verificarPermisos(['admin', 'moderador']), (req, res) => {
+router.get('/rechazados', verifyToken, verificarPermisos(['admin', 'modderador']), (req, res) => {
   req.query.estado = 'rechazado';
   usuarioController.obtenerUsuariosPorEstado(req, res);
 });

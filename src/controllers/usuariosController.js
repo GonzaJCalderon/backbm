@@ -768,11 +768,11 @@ const reintentarRegistro = async (req, res) => {
 
 
 // Obtener usuarios por estado
+// Obtener usuarios por estado
 const obtenerUsuariosPorEstado = async (req, res) => {
   const { estado } = req.query;
   console.log('👉 Estado recibido:', estado);
 
-  // Validación mejorada con estados permitidos
   const estadosValidos = ['pendiente', 'rechazado', 'aprobado'];
   if (!estado || !estadosValidos.includes(estado)) {
     return res.status(400).json({
@@ -780,33 +780,28 @@ const obtenerUsuariosPorEstado = async (req, res) => {
     });
   }
 
-  // Usa [Op.in] para incluir múltiples estados válidos si es necesario:
+  // 👇 Inclusión adicional si el estado es pendiente
   let estadosConsulta = [estado];
   if (estado === 'pendiente') estadosConsulta.push('pendiente_revision');
 
   try {
     console.log(`🔍 Buscando usuarios con estados: ${estadosConsulta}`);
 
+    // 👇 Buscando usuarios según estado
     const usuarios = await Usuario.findAll({
-      where: {
-        estado: {
-          [Op.in]: estadosConsulta,
-        },
-      },
+      where: { estado: { [Op.in]: estadosConsulta } },
       attributes: [
         'uuid', 'nombre', 'apellido', 'email', 'dni', 'direccion', 'estado',
         'rolDefinitivo', 'rolEmpresa', 'delegadoDeEmpresa', 'delegadoDeUsuario',
         'aprobadoPor', 'fechaAprobacion', 'rechazadoPor', 'fechaRechazo',
         'motivoRechazo', 'createdAt', 'updatedAt',
       ],
-include: [{
-  model: Empresa,
-  as: 'empresaAsignada',
-  attributes: ['uuid', 'razonSocial', 'cuit', 'email'],
-  required: false // 👈 Esto asegura usuarios sin empresa asignada
-}]
-
-
+      include: [{
+        model: Empresa,
+        as: 'empresaAsignada',
+        attributes: ['uuid', 'razonSocial', 'cuit', 'email'],
+        required: false
+      }]
     });
 
     if (!usuarios.length) return res.status(200).json([]);
@@ -822,15 +817,28 @@ include: [{
     const aprobadoresMap = Object.fromEntries(aprobadores.map(user => [user.uuid, `${user.nombre} ${user.apellido}`]));
     const rechazadoresMap = Object.fromEntries(rechazadores.map(user => [user.uuid, `${user.nombre} ${user.apellido}`]));
 
+    // 🚩 Versión robusta definitiva del campo "direccion"
     const usuariosFormateados = usuarios.map(usuario => ({
       ...usuario.toJSON(),
-      direccion: typeof usuario.direccion === 'string' ? JSON.parse(usuario.direccion) : usuario.direccion,
+      direccion: (() => {
+        if (!usuario.direccion) return null;                         // dirección vacía o null
+        if (typeof usuario.direccion === 'object') return usuario.direccion; // dirección ya en objeto
+        try {
+          return JSON.parse(usuario.direccion);                      // intenta parsear
+        } catch (err) {
+          console.warn("⚠️ JSON dirección inválido en usuario UUID:", usuario.uuid);
+          return null;                                               // evita error devolviendo null
+        }
+      })(),
       aprobadoPor: aprobadoresMap[usuario.aprobadoPor] || null,
       rechazadoPor: rechazadoresMap[usuario.rechazadoPor] || null,
     }));
 
+    // ✅ Resultado exitoso
     return res.status(200).json(usuariosFormateados);
+
   } catch (error) {
+    // 🛑 Manejo de error robusto
     console.error('🔥 Error en obtenerUsuariosPorEstado:', error);
     return res.status(500).json({
       message: 'Error al obtener usuarios por estado.',
@@ -839,7 +847,6 @@ include: [{
     });
   }
 };
-
 
 
 
