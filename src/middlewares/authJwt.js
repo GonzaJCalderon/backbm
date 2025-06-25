@@ -13,71 +13,53 @@ const catchError = (err, res) => {
   return res.status(401).json({ message: "Unauthorized!" });
 };
 
+// 🔐 Mejorado verifyToken middleware
 const verifyToken = async (req, res, next) => {
   try {
     const authHeader = req.headers['authorization'];
+    console.log("🔑 Header recibido:", authHeader); // ⬅️ LOG ÚTIL
 
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
       return res.status(401).json({ message: 'Token no proporcionado o mal formado.' });
     }
 
     const token = authHeader.split(' ')[1];
+    console.log("📌 Token recibido:", token); // ⬅️ LOG ÚTIL
+
     const decoded = jwt.verify(token, config.secret);
+    console.log("👤 Decoded:", decoded); // ⬅️ LOG ÚTIL
 
-    console.log('🧾 Decoded token:', decoded);
-
-    let user = null;
-
-    const requiredFields = ['rolDefinitivo', 'tipo', 'empresaUuid', 'rolEmpresa'];
-    const faltanCampos = requiredFields.some(field => !decoded[field]);
-
-    if (faltanCampos) {
-      console.warn('⚠️ Faltan campos en el token, se buscan desde la DB');
-
-      const usuario = await Usuario.findOne({
-        where: { uuid: decoded.uuid },
-        attributes: ['uuid', 'email', 'rolDefinitivo', 'tipo', 'empresa_uuid', 'rolEmpresa'],
-      });
-
-      if (!usuario) {
-        return res.status(404).json({ message: 'Usuario no encontrado en la DB' });
-      }
-
-      user = {
-        uuid: usuario.uuid,
-        email: usuario.email,
-        rolDefinitivo: usuario.rolDefinitivo,
-        tipo: usuario.tipo,
-        empresaUuid: usuario.empresa_uuid,
-        rolEmpresa: usuario.rolEmpresa,
-      };
-
-    } else {
-      user = {
-        uuid: decoded.uuid,
-        email: decoded.email,
-        rolDefinitivo: decoded.rolDefinitivo,
-        tipo: decoded.tipo,
-        empresaUuid: decoded.empresaUuid,
-        rolEmpresa: decoded.rolEmpresa,
-      };
+    if (!decoded?.uuid) {
+      return res.status(400).json({ message: 'El token no contiene UUID válido.' });
     }
 
-    console.log('✅ Usuario final del middleware:', user);
+    const usuarioDB = await Usuario.findOne({
+      where: { uuid: decoded.uuid },
+      attributes: ['uuid', 'email', 'rolDefinitivo', 'empresa_uuid', 'rolEmpresa']
+    });
 
-    req.user = user;
+    if (!usuarioDB) {
+      return res.status(404).json({ message: 'Usuario no encontrado.' });
+    }
+
+    req.user = {
+      uuid: usuarioDB.uuid,
+      email: usuarioDB.email,
+      rolDefinitivo: usuarioDB.rolDefinitivo,
+      empresaUuid: usuarioDB.empresa_uuid,
+      rolEmpresa: usuarioDB.rolEmpresa,
+      delegadoDeEmpresa: usuarioDB.rolEmpresa === 'responsable' ? usuarioDB.empresa_uuid : null
+    };
+
+    console.log("✅ Usuario autenticado:", req.user); // ⬅️ LOG ÚTIL
     next();
-  } catch (err) {
-    console.error('❌ Error en verifyToken:', err);
-  
-    if (err instanceof jwt.TokenExpiredError) {
-      return res.status(401).json({ message: 'Token expirado.' }); // ⚠️ CLAVE: debe ser 401, no 403
-    }
-  
-    return res.status(401).json({ message: 'Token inválido.' });
+
+  } catch (error) {
+    console.error('❌ Error en verifyToken:', error.message);
+    return res.status(403).json({ message: 'Token inválido o expirado.', error: error.message });
   }
-  
 };
+
 
 const verificarPermisos = (rolesPermitidos) => {
   return (req, res, next) => {

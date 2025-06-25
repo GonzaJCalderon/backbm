@@ -70,26 +70,18 @@ exports.sendMessage = async (req, res) => {
   }
 };
 
-
 exports.getMessages = async (req, res) => {
   try {
+    // 🚨 AQUÍ está la clave que mencionaba (validación explícita de rol)
+    if (req.user.rolDefinitivo !== 'admin') {
+      return res.status(403).json({ message: '🚫 Solo administradores tienen acceso.' });
+    }
+
     const messages = await Message.findAll({
       include: [
-        {
-          model: Usuario,
-          as: "sender", // ✅ Usuario que envió el mensaje
-          attributes: ["uuid", "nombre", "apellido"],
-        },
-        {
-          model: Usuario,
-          as: "recipient", // ✅ Usuario destinatario del mensaje (si aplica)
-          attributes: ["uuid", "nombre", "apellido"],
-        },
-        {
-          model: Usuario,
-          as: "assignedAdmin", // ✅ Admin que recibió el mensaje
-          attributes: ["uuid", "nombre", "apellido"],
-        },
+        { model: Usuario, as: "sender", attributes: ["uuid", "nombre", "apellido"] },
+        { model: Usuario, as: "recipient", attributes: ["uuid", "nombre", "apellido"] },
+        { model: Usuario, as: "assignedAdmin", attributes: ["uuid", "nombre", "apellido"] },
       ],
       order: [["createdAt", "ASC"]],
     });
@@ -99,6 +91,7 @@ exports.getMessages = async (req, res) => {
     res.status(500).json({ error: "Error al obtener mensajes." });
   }
 };
+
 
 
 exports.getMessagesByUser = async (req, res) => {

@@ -799,11 +799,13 @@ const obtenerUsuariosPorEstado = async (req, res) => {
         'aprobadoPor', 'fechaAprobacion', 'rechazadoPor', 'fechaRechazo',
         'motivoRechazo', 'createdAt', 'updatedAt',
       ],
-    include: [{
+include: [{
   model: Empresa,
-  as: 'empresaAsignada', // 👈 este es el alias correcto si usás `empresa_uuid`
-  attributes: ['uuid', 'razonSocial', 'cuit', 'email']
+  as: 'empresaAsignada',
+  attributes: ['uuid', 'razonSocial', 'cuit', 'email'],
+  required: false // 👈 Esto asegura usuarios sin empresa asignada
 }]
+
 
     });
 
