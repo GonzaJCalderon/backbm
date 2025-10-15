@@ -144,6 +144,7 @@ exports.deleteConversation = async (req, res) => {
   }
 };
 
+// ✅ Solo devuelve mensajes realmente no leídos del admin actual
 exports.getUnreadMessages = async (req, res) => {
   try {
     const { userUuid } = req.params;
@@ -151,29 +152,99 @@ exports.getUnreadMessages = async (req, res) => {
       return res.status(400).json({ message: "UUID del usuario es requerido." });
     }
 
-const unreadMessages = await Message.findAll({
-  where: {
-    isRead: false,
-    [Op.or]: [
-      // 🔹 Mensajes asignados a este admin
-      { recipientUuid: userUuid },
-      { assignedAdminUuid: userUuid },
-      // 🔹 Mensajes sin asignar AÚN (para todos los admins)
-      { isForAdmins: true, assignedAdminUuid: null },
-    ]
-  }
-});
+    // 1️⃣ Buscar todos los mensajes no leídos que interesan al admin
+    const mensajes = await Message.findAll({
+      where: {
+        isRead: false,
+        [Op.or]: [
+          // Mensajes asignados directamente al admin
+          { assignedAdminUuid: userUuid },
 
+          // Mensajes globales (sin asignar aún, no del sistema)
+          {
+            [Op.and]: [
+              { isForAdmins: true },
+              { assignedAdminUuid: null },
+              { senderUuid: { [Op.ne]: "00000000-0000-0000-0000-000000000000" } },
+            ],
+          },
+        ],
+      },
+      order: [["createdAt", "DESC"]],
+    });
 
-    return res.status(200).json({ unreadMessages });
+    // 2️⃣ Filtramos mensajes automáticos, o que ya respondieron los admins
+    const filtrados = mensajes.filter((m) => {
+      // Excluye mensajes del sistema
+      if (m.senderUuid === "00000000-0000-0000-0000-000000000000") return false;
 
+      // Excluye mensajes ya asignados a otro admin
+      if (m.assignedAdminUuid && m.assignedAdminUuid !== userUuid) return false;
+
+      // Excluye los mensajes que ya fueron respondidos por este admin
+      if (m.recipientUuid && m.recipientUuid === userUuid && m.isRead) return false;
+
+      return true;
+    });
+
+    console.log(`📬 Mensajes no leídos REALES para admin ${userUuid}: ${filtrados.length}`);
+
+    return res.status(200).json({ unreadMessages: filtrados });
   } catch (error) {
+    console.error("❌ Error en getUnreadMessages:", error);
+    return res.status(500).json({ message: "Error interno del servidor." });
+  }
+};
+
+// ✅ Cuando un admin abre el inbox, toma los mensajes globales como propios
+exports.assignUnreadToAdmin = async (req, res) => {
+  try {
+    const { adminUuid } = req.body;
+    if (!adminUuid) {
+      return res.status(400).json({ message: "Falta el UUID del admin." });
+    }
+
+    // Buscamos mensajes globales sin asignar y sin leer
+    const mensajesGlobales = await Message.findAll({
+      where: {
+        isRead: false,
+        isForAdmins: true,
+        assignedAdminUuid: null,
+        senderUuid: { [Op.ne]: "00000000-0000-0000-0000-000000000000" },
+      },
+    });
+
+    if (!mensajesGlobales.length) {
+      return res.status(200).json({ message: "No había mensajes por asignar.", count: 0 });
+    }
+
+    // Asignamos todos a este admin
+    const updates = await Promise.all(
+      mensajesGlobales.map(async (msg) => {
+        msg.assignedAdminUuid = adminUuid;
+        msg.recipientUuid = adminUuid;
+        msg.isRead = true;
+        await msg.save();
+        return msg.uuid;
+      })
+    );
+
+    console.log(`✅ ${updates.length} mensajes asignados automáticamente a admin ${adminUuid}`);
+
+    return res.status(200).json({
+      message: "Mensajes asignados correctamente al admin.",
+      count: updates.length,
+      assigned: updates,
+    });
+  } catch (error) {
+    console.error("❌ Error en assignUnreadToAdmin:", error);
     return res.status(500).json({ message: "Error interno del servidor." });
   }
 };
 
 
 // ✅ Marcar como leídos los mensajes recibidos por el usuario
+// ✅ Marca como leídos los mensajes recibidos por un usuario o admin
 exports.markMessagesAsRead = async (req, res) => {
   try {
     const { userUuid } = req.params;
@@ -182,31 +253,53 @@ exports.markMessagesAsRead = async (req, res) => {
       return res.status(400).json({ message: "❌ userUuid requerido." });
     }
 
-const [affectedRows] = await Message.update(
-  { isRead: true },
-  {
-    where: {
-      isRead: false,
-      [Op.or]: [
-        { recipientUuid: userUuid },
-        { assignedAdminUuid: userUuid }
-      ]
-    },
-  }
-);
+    // 🔹 Actualizamos los mensajes no leídos de este usuario/admin
+    const [affectedRows] = await Message.update(
+      { isRead: true },
+      {
+        where: {
+          isRead: false,
+          [Op.or]: [
+            { recipientUuid: userUuid },
+            { assignedAdminUuid: userUuid },
+          ],
+        },
+      }
+    );
 
-console.log(`🔔 Mensajes marcados como leídos por admin ${userUuid}: ${affectedRows}`);
+    console.log(`🔔 Mensajes marcados como leídos por admin ${userUuid}: ${affectedRows}`);
 
+    // 🔍 Debug extra: ver cuáles quedaron sin leer
+    const noLeidos = await Message.findAll({
+      where: {
+        isRead: false,
+        [Op.or]: [
+          { recipientUuid: userUuid },
+          { assignedAdminUuid: userUuid },
+        ],
+      },
+      attributes: ["uuid", "content", "isRead", "assignedAdminUuid"],
+    });
+
+    console.log(
+      `📋 Todavía no leídos (${noLeidos.length}):`,
+      noLeidos.map((m) => ({
+        id: m.uuid,
+        asignadoA: m.assignedAdminUuid,
+        isRead: m.isRead,
+      }))
+    );
 
     res.status(200).json({
       message: "✅ Mensajes marcados como leídos correctamente.",
       updated: affectedRows,
     });
-
   } catch (error) {
+    console.error("❌ Error en markMessagesAsRead:", error);
     res.status(500).json({ message: "Error interno del servidor" });
   }
 };
+
 
 
 
@@ -302,12 +395,19 @@ exports.markUserMessagesAsRead = async (req, res) => {
     const { userUuid } = req.params; // UUID del usuario que recibe el mensaje
     const { adminUuid } = req.body;  // UUID del admin que envió el mensaje
 
+    console.log("📩 markUserMessagesAsRead DEBUG:", { userUuid, adminUuid });
+
     if (!userUuid || !adminUuid) {
       return res.status(400).json({ message: "Faltan userUuid o adminUuid." });
     }
 
+    // ✅ Confirmar que el modelo Message existe
+    if (!Message) {
+      throw new Error("El modelo Message no está definido.");
+    }
+
     // Actualiza los mensajes donde el admin es el remitente y el usuario es el destinatario
-    const updated = await Message.update(
+    const [updated] = await Message.update(
       { isRead: true },
       {
         where: {
@@ -318,9 +418,18 @@ exports.markUserMessagesAsRead = async (req, res) => {
       }
     );
 
-    res.status(200).json({ message: "Mensajes marcados como leídos correctamente." });
+    console.log(`✅ Mensajes marcados como leídos: ${updated}`);
+
+    res.status(200).json({
+      message: "Mensajes marcados como leídos correctamente.",
+      updated,
+    });
   } catch (error) {
-    res.status(500).json({ message: "Error interno del servidor." });
+    console.error("❌ Error en markUserMessagesAsRead:", error);
+    res.status(500).json({
+      message: "Error interno del servidor.",
+      error: error.message,
+    });
   }
 };
 

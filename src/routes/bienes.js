@@ -20,7 +20,21 @@ router.get('/', bienesController.obtenerBienes);
 router.post('/crear', verifyToken, uploadFotosMiddleware, bienesController.crearBien)
 
 
-router.get('/empresa/:uuid', bienesController.obtenerBienesPorEmpresa);
+router.get('/empresa/:uuid', verifyToken, async (req, res, next) => {
+  const { uuid } = req.params;
+
+  // 🚨 Validación preventiva
+  if (!uuid || uuid === 'undefined' || uuid === 'null') {
+    return res.status(400).json({
+      success: false,
+      message: 'UUID de empresa inválido o no especificado',
+    });
+  }
+
+  // ✅ Si todo está bien, continuar con el controlador
+  next();
+}, bienesController.obtenerBienesPorEmpresa);
+
 
 // Obtener bienes filtrados por marca, tipo y modelo
 router.get('/filtrados', bienesController.getBienesPorMarcaTipoModelo);

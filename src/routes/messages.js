@@ -23,6 +23,16 @@ router.get('/unread/:userUuid', verifyToken, messagesController.getUnreadMessage
 
 // ✅ RUTA: Marcar mensajes como leídos
 router.put('/mark-as-read/:userUuid', verifyToken, messagesController.markMessagesAsRead);
+// ✅ Ruta para que el admin "tome" los mensajes globales al abrir el inbox
+router.put('/assign-unread', verifyToken, messagesController.assignUnreadToAdmin);
+
+// ✅ RUTA: Marcar mensajes del admin como leídos por el usuario
+router.put(
+  '/mark-as-read-user/:userUuid',
+  verifyToken,
+  messagesController.markUserMessagesAsRead
+);
+
 
 
 // ✅ RUTA: Eliminar la conversación de un usuario
