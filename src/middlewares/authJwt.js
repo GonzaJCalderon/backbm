@@ -17,17 +17,16 @@ const catchError = (err, res) => {
 const verifyToken = async (req, res, next) => {
   try {
     const authHeader = req.headers['authorization'];
-    console.log("🔑 Header recibido:", authHeader); // ⬅️ LOG ÚTIL
+    console.log("🔑 Header recibido:", authHeader);
 
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
       return res.status(401).json({ message: 'Token no proporcionado o mal formado.' });
     }
 
     const token = authHeader.split(' ')[1];
-    console.log("📌 Token recibido:", token); // ⬅️ LOG ÚTIL
-
     const decoded = jwt.verify(token, config.secret);
-    console.log("👤 Decoded:", decoded); // ⬅️ LOG ÚTIL
+
+    console.log("👤 Decoded:", decoded);
 
     if (!decoded?.uuid) {
       return res.status(400).json({ message: 'El token no contiene UUID válido.' });
@@ -48,10 +47,12 @@ const verifyToken = async (req, res, next) => {
       rolDefinitivo: usuarioDB.rolDefinitivo,
       empresaUuid: usuarioDB.empresa_uuid,
       rolEmpresa: usuarioDB.rolEmpresa,
-      delegadoDeEmpresa: usuarioDB.rolEmpresa === 'responsable' ? usuarioDB.empresa_uuid : null
+      tipo: decoded.tipo, // ✅ ESTA LÍNEA AGREGA `tipo` CORRECTAMENTE
+      delegadoDeEmpresa:
+        usuarioDB.rolEmpresa === 'responsable' ? usuarioDB.empresa_uuid : null,
     };
 
-    console.log("✅ Usuario autenticado:", req.user); // ⬅️ LOG ÚTIL
+    console.log("✅ Usuario autenticado:", req.user);
     next();
 
   } catch (error) {
@@ -59,6 +60,7 @@ const verifyToken = async (req, res, next) => {
     return res.status(403).json({ message: 'Token inválido o expirado.', error: error.message });
   }
 };
+
 
 
 const verificarPermisos = (rolesPermitidos) => {

@@ -29,6 +29,7 @@ const { v4: uuidv4 } = require('uuid');
 
 
 /* ──────────────── CREAR USUARIO ──────────────── */
+/* ──────────────── CREAR USUARIO ──────────────── */
 const crearUsuario = async (req, res) => {
   try {
     const {
@@ -49,14 +50,14 @@ const crearUsuario = async (req, res) => {
       rolDefinitivo = 'usuario'
     } = req.body;
 
-    email = email.toLowerCase();
+    const emailLower = email.toLowerCase();
 
     if (!email || !password || !tipo) {
       return res.status(400).json({ message: 'Email, contraseña y tipo son obligatorios.' });
     }
 
     // 🔍 Validar duplicados
-    const condicionesWhere = [{ email }];
+    const condicionesWhere = [{ email: emailLower }];
     if (tipo === 'fisica' && dni) condicionesWhere.push({ dni });
     if (tipo === 'juridica' && dniResponsable) condicionesWhere.push({ dni: dniResponsable });
 
@@ -75,7 +76,7 @@ const crearUsuario = async (req, res) => {
     const nuevoUsuario = await Usuario.create({
       nombre: tipo === 'fisica' ? nombre : nombreResponsable,
       apellido: tipo === 'fisica' ? apellido : apellidoResponsable,
-      email,
+      email: emailLower,
       password: hashedPassword,
       tipo,
       dni: tipo === 'fisica' ? dni : dniResponsable,
@@ -107,15 +108,14 @@ const crearUsuario = async (req, res) => {
         razonSocial,
         cuit: cuitResponsable,
         direccion: direccionEmpresa,
-        email,
+        email: emailLower,
         creadoPor: nuevoUsuario.uuid
       });
-      
+
       // 🔗 Asociar empresa recién creada al usuario
       nuevoUsuario.delegadoDeEmpresa = empresaCreada.uuid;
       nuevoUsuario.empresa_uuid = empresaCreada.uuid; // ⚠️ ¡NECESARIO para el frontend!
       await nuevoUsuario.save();
-      // 🔥 persistimos asociación
     }
 
     // 📬 Enviar correo de confirmación
@@ -126,7 +126,7 @@ const crearUsuario = async (req, res) => {
       </div>
     `;
 
-    await enviarCorreo(email, 'Registro recibido', 'Pendiente de aprobación', htmlContent);
+    await enviarCorreo(emailLower, 'Registro recibido', 'Pendiente de aprobación', htmlContent);
 
     return res.status(201).json({
       message: 'Usuario y empresa creados con éxito.',
@@ -768,7 +768,6 @@ const reintentarRegistro = async (req, res) => {
 
 
 // Obtener usuarios por estado
-// Obtener usuarios por estado
 const obtenerUsuariosPorEstado = async (req, res) => {
   const { estado } = req.query;
   console.log('👉 Estado recibido:', estado);
@@ -776,69 +775,99 @@ const obtenerUsuariosPorEstado = async (req, res) => {
   const estadosValidos = ['pendiente', 'rechazado', 'aprobado'];
   if (!estado || !estadosValidos.includes(estado)) {
     return res.status(400).json({
-      message: 'El parámetro "estado" es obligatorio y debe ser: "pendiente", "rechazado" o "aprobado".',
+      message:
+        'El parámetro "estado" es obligatorio y debe ser: "pendiente", "rechazado" o "aprobado".',
     });
   }
 
-  // 👇 Inclusión adicional si el estado es pendiente
-  let estadosConsulta = [estado];
-  if (estado === 'pendiente') estadosConsulta.push('pendiente_revision');
+  // Incluir pendiente_revision como sinónimo
+  const estadosConsulta = estado === 'pendiente'
+    ? ['pendiente', 'pendiente_revision']
+    : [estado];
 
   try {
     console.log(`🔍 Buscando usuarios con estados: ${estadosConsulta}`);
 
-    // 👇 Buscando usuarios según estado
     const usuarios = await Usuario.findAll({
       where: { estado: { [Op.in]: estadosConsulta } },
       attributes: [
-        'uuid', 'nombre', 'apellido', 'email', 'dni', 'direccion', 'estado',
-        'rolDefinitivo', 'rolEmpresa', 'delegadoDeEmpresa', 'delegadoDeUsuario',
-        'aprobadoPor', 'fechaAprobacion', 'rechazadoPor', 'fechaRechazo',
-        'motivoRechazo', 'createdAt', 'updatedAt',
+        'uuid',
+        'nombre',
+        'apellido',
+        'email',
+        'dni',
+        'direccion',
+        'estado',
+        'rolDefinitivo',
+        'rolEmpresa',
+        'delegadoDeEmpresa',
+        'delegadoDeUsuario',
+        'aprobadoPor',
+        'fechaAprobacion',
+        'rechazadoPor',
+        'fechaRechazo',
+        'motivoRechazo',
+        'createdAt',
+        'updatedAt',
       ],
-      include: [{
-        model: Empresa,
-        as: 'empresaAsignada',
-        attributes: ['uuid', 'razonSocial', 'cuit', 'email'],
-        required: false
-      }]
+      include: [
+        {
+          model: Empresa,
+          as: 'empresa', // ✅ alias corregido
+          attributes: ['uuid', 'razonSocial', 'cuit', 'email'],
+          required: false,
+        },
+      ],
+      order: [['createdAt', 'DESC']],
     });
 
     if (!usuarios.length) return res.status(200).json([]);
 
-    const aprobadoresIds = [...new Set(usuarios.map(u => u.aprobadoPor).filter(Boolean))];
-    const rechazadoresIds = [...new Set(usuarios.map(u => u.rechazadoPor).filter(Boolean))];
+    // Buscar nombres de aprobadores y rechazadores
+    const aprobadoresIds = [
+      ...new Set(usuarios.map(u => u.aprobadoPor).filter(Boolean)),
+    ];
+    const rechazadoresIds = [
+      ...new Set(usuarios.map(u => u.rechazadoPor).filter(Boolean)),
+    ];
 
     const [aprobadores, rechazadores] = await Promise.all([
-      Usuario.findAll({ where: { uuid: aprobadoresIds }, attributes: ['uuid', 'nombre', 'apellido'] }),
-      Usuario.findAll({ where: { uuid: rechazadoresIds }, attributes: ['uuid', 'nombre', 'apellido'] }),
+      Usuario.findAll({
+        where: { uuid: aprobadoresIds },
+        attributes: ['uuid', 'nombre', 'apellido'],
+      }),
+      Usuario.findAll({
+        where: { uuid: rechazadoresIds },
+        attributes: ['uuid', 'nombre', 'apellido'],
+      }),
     ]);
 
-    const aprobadoresMap = Object.fromEntries(aprobadores.map(user => [user.uuid, `${user.nombre} ${user.apellido}`]));
-    const rechazadoresMap = Object.fromEntries(rechazadores.map(user => [user.uuid, `${user.nombre} ${user.apellido}`]));
+    const aprobadoresMap = Object.fromEntries(
+      aprobadores.map(u => [u.uuid, `${u.nombre} ${u.apellido}`])
+    );
+    const rechazadoresMap = Object.fromEntries(
+      rechazadores.map(u => [u.uuid, `${u.nombre} ${u.apellido}`])
+    );
 
-    // 🚩 Versión robusta definitiva del campo "direccion"
+    // Formatear direcciones
     const usuariosFormateados = usuarios.map(usuario => ({
       ...usuario.toJSON(),
       direccion: (() => {
-        if (!usuario.direccion) return null;                         // dirección vacía o null
-        if (typeof usuario.direccion === 'object') return usuario.direccion; // dirección ya en objeto
+        if (!usuario.direccion) return null;
+        if (typeof usuario.direccion === 'object') return usuario.direccion;
         try {
-          return JSON.parse(usuario.direccion);                      // intenta parsear
-        } catch (err) {
-          console.warn("⚠️ JSON dirección inválido en usuario UUID:", usuario.uuid);
-          return null;                                               // evita error devolviendo null
+          return JSON.parse(usuario.direccion);
+        } catch {
+          console.warn('⚠️ Dirección inválida para usuario:', usuario.uuid);
+          return null;
         }
       })(),
       aprobadoPor: aprobadoresMap[usuario.aprobadoPor] || null,
       rechazadoPor: rechazadoresMap[usuario.rechazadoPor] || null,
     }));
 
-    // ✅ Resultado exitoso
     return res.status(200).json(usuariosFormateados);
-
   } catch (error) {
-    // 🛑 Manejo de error robusto
     console.error('🔥 Error en obtenerUsuariosPorEstado:', error);
     return res.status(500).json({
       message: 'Error al obtener usuarios por estado.',

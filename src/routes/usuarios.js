@@ -203,7 +203,7 @@ router.get(
 
 
 
-router.get('/rechazados', verifyToken, verificarPermisos(['admin', 'modderador']), (req, res) => {
+router.get('/rechazados', verifyToken, verificarPermisos(['admin', 'moderador']), (req, res) => {
   req.query.estado = 'rechazado';
   usuarioController.obtenerUsuariosPorEstado(req, res);
 });
