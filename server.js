@@ -17,6 +17,7 @@ console.log('🔹 Base de datos:', process.env.DB_NAME || 'No configurado');
 // Configuración de CORS
 const corsOptions = {
   origin: [
+    'https://regbim.minsegmza.gob.ar',
     'http://localhost:3000',
     'http://10.100.1.80:3000',
     'http://10.100.1.80:5005',

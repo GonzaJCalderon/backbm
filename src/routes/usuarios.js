@@ -17,6 +17,12 @@ const { verificarEmpresaJuridica } = require('../middlewares/authTipo');
 const secretKey = process.env.SECRET_KEY || 'bienes_muebles'; // Usa la clave secreta de .env
 
 
+router.get('/debug/aliases', async (req, res) => {
+  const { Usuario } = require('../models');
+  const associations = Object.keys(Usuario.associations);
+  return res.json({ associations });
+});
+
 
 // Rutas de usuario
 // Rutas de usuario
@@ -125,12 +131,12 @@ router.get('/usuarios', verifyToken, verificarPermisos(['admin', 'moderador']), 
     res.status(500).json({ message: 'Error al filtrar usuarios.' });
   }
 });
-// Ruta para obtener usuarios aprobados
 router.get('/aprobados', async (req, res) => {
-  
-  req.query.estado = 'aprobado'; // Filtro correcto
+  req.query.estado = 'aprobado';
   await usuarioController.obtenerUsuariosPorEstado(req, res);
 });
+
+
 
 router.get('/historial-cambios', async (req, res) => {
   try {
@@ -191,23 +197,24 @@ router.post('/update-account/:token', async (req, res) => {
   }
 });
 // backend rutas usuarios.js
-router.get(
-  '/pendientes',
-  verifyToken,
-  verificarPermisos(['admin', 'moderador']),
-  (req, res) => {
-    req.query.estado = 'pendiente'; // 👈 aquí sí seteamos el estado
-    usuarioController.obtenerUsuariosPorEstado(req, res);
-  }
-);
-
-
-
-router.get('/rechazados', verifyToken, verificarPermisos(['admin', 'moderador']), (req, res) => {
-  req.query.estado = 'rechazado';
-  usuarioController.obtenerUsuariosPorEstado(req, res);
+// 🟡 Usuarios Pendientes
+router.get('/pendientes', verifyToken, verificarPermisos(['admin', 'moderador']), async (req, res) => {
+  console.log('🧾 Query params (antes de set):', req.query);
+  req.query.estado = 'pendiente';
+  console.log('✅ Query params (después de set):', req.query);
+  await usuarioController.obtenerUsuariosPorEstado(req, res);
 });
-// routes/usuarios.js
+
+
+
+// 🔴 Usuarios Rechazados
+router.get('/rechazados', verifyToken, verificarPermisos(['admin', 'moderador']), async (req, res) => {
+  console.log('🧾 Query params (antes de set):', req.query);
+  req.query.estado = 'rechazado';
+  console.log('✅ Query params (después de set):', req.query);
+  await usuarioController.obtenerUsuariosPorEstado(req, res);
+});
+
 
 router.get('/detalles', verifyToken, verificarPermisos(['admin', 'moderador']), usuarioController.obtenerUsuarioDetalles);
 

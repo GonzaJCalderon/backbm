@@ -1,3 +1,4 @@
+// src/controllers/empresaController.js
 const { Empresa, Usuario } = require('../models');
 const { Op } = require('sequelize');
 const { enviarCorreo } = require('../services/emailService');
@@ -15,7 +16,7 @@ const obtenerEmpresas = async (req, res) => {
       include: [
         {
           model: Usuario,
-          as: 'delegados', // ✅ USAR EL ALIAS EXACTO DEFINIDO EN LA ASOCIACIÓN
+          as: 'usuarios', // ✅ alias correcto
           attributes: ['uuid', 'nombre', 'apellido', 'email', 'dni', 'rolEmpresa']
         }
       ],
@@ -29,19 +30,17 @@ const obtenerEmpresas = async (req, res) => {
   }
 };
 
-
 const obtenerEmpresasConUsuarios = async (req, res) => {
   try {
     const { estado } = req.query;
-
-    const whereClause = estado ? { estado } : {}; // si no hay query param, trae todo
+    const whereClause = estado ? { estado } : {};
 
     const empresas = await Empresa.findAll({
       where: whereClause,
       include: [
         {
           model: Usuario,
-          as: 'delegados',
+          as: 'usuarios', // ✅ alias correcto
           attributes: ['uuid', 'nombre', 'apellido', 'email', 'dni', 'rolEmpresa', 'createdAt'],
           where: {
             rolEmpresa: ['delegado', 'responsable']
@@ -68,7 +67,7 @@ const obtenerEmpresaPorUuid = async (req, res) => {
       where: { uuid },
       include: {
         model: Usuario,
-        as: 'usuarios',
+        as: 'usuarios', // ✅ alias correcto
         attributes: ['uuid', 'nombre', 'email', 'rolEmpresa', 'estado'],
       },
     });
@@ -82,6 +81,7 @@ const obtenerEmpresaPorUuid = async (req, res) => {
     res.status(500).json({ message: 'Error al obtener empresa.', error: error.message });
   }
 };
+
 
 // 🔹 Crear empresa
 const crearEmpresa = async (req, res) => {
