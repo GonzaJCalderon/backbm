@@ -1,4 +1,4 @@
-const Usuario = require('../models/Usuario'); 
+const { Usuario } = require('../models'); 
 const bcrypt = require('bcryptjs'); 
 const jwt = require('jsonwebtoken'); 
 const { validarCamposRequeridos } = require('../utils/validationUtils'); 
@@ -38,7 +38,6 @@ const loginUsuario = async (req, res) => {
             direccion: user.direccion,
             rolDefinitivo: user.rolDefinitivo,
             dni: user.dni,
-            password: password, // ✅ Ahora enviamos la contraseña real en la respuesta
         };
 
         // Generar token con rolDefinitivo
@@ -55,7 +54,11 @@ const loginUsuario = async (req, res) => {
         res.json({ usuario: responseUser, token });
 
     } catch (error) {
-        res.status(500).json({ message: 'Error en el servidor', error });
+        console.error('🔥 Error en loginUsuario:', error);
+        res.status(500).json({ 
+            message: 'Error en el servidor', 
+            error: error.message 
+        });
     }
 };
 
